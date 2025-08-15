@@ -453,25 +453,24 @@ function update_customize()
             
             -- Update all panel texts
             for p in all(customization_panels) do
-            if p.option_index==1 then
-                p.text="⬅️ scale: "..menu_options[1].values[menu_options[1].current].." ➡️"
-            elseif p.option_index==2 then
-                p.text="⬅️ water: "..menu_options[2].values[menu_options[2].current].." ➡️"
-            elseif p.option_index==3 then
-                p.text="⬅️ seed: "..current_seed.." ➡️"
-            end
+                if p.option_index then
+                    local o = menu_options[p.option_index]
+                    if o.is_action then
+                        p.text = "random"
+                    else
+                        p.text = "⬅️ "..o.name..": "..(o.is_seed and current_seed or tostr(o.values[o.current])).." ➡️"
+                    end
+                end
             end
             
             regenerate_world_live()
         end
     elseif option.is_seed then
-        if btnp(⬅️) then
-            current_seed = max(0, current_seed - 1)
-            current_panel.text = "⬅️ " .. option.name .. ": " .. current_seed .. " ➡️"
-        end
-        if btnp(➡️) then
-            current_seed = min(9999, current_seed + 1)
-            current_panel.text = "⬅️ " .. option.name .. ": " .. current_seed .. " ➡️"
+        local changed=false
+        if btnp(⬅️) then current_seed=(current_seed-1)%10000 changed=true end
+        if btnp(➡️) then current_seed=(current_seed+1)%10000 changed=true end
+        if changed then
+            current_panel.text="⬅️ "..option.name..": "..current_seed.." ➡️"
         end
     else
         if btnp(⬅️) then

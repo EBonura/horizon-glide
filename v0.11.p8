@@ -16,80 +16,76 @@ function fmt2(n)
 end
 
 function draw_triangle(l,t,c,m,r,b,col)
-	color(col)
-	while t>m or m>b do
-		l,t,c,m=c,m,l,t
-		while m>b do
-			c,m,r,b=r,b,c,m
-		end
-	end
-	local e,j=l,(r-l)/(b-t)
-	while m do
-		local i=(c-l)/(m-t)
-		for t=flr(t),min(flr(m)-1,127) do
-			rectfill(l,t,e,t)
-			l+=i
-			e+=j
-		end
-		l,t,m,c,b=c,m,b,r
-	end
-	pset(r,t)
+    color(col)
+    while t>m or m>b do
+        l,t,c,m=c,m,l,t
+        while m>b do c,m,r,b=r,b,c,m end
+    end
+    local e,j=l,(r-l)/(b-t)
+    while m do
+        local i=(c-l)/(m-t)
+        for t=flr(t),min(flr(m)-1,127) do
+            line(l,t,e,t)
+            l+=i e+=j
+        end
+        l,t,m,c,b=c,m,b,r
+    end
+    pset(r,t)
 end
+
 
 -- terrain color lookup tables (top, side, dark triplets; height thresholds)
 TERRAIN_PAL_STR = "\1\0\0\12\1\1\15\4\2\3\1\0\11\3\1\4\2\0\6\5\0\7\6\5"
 TERRAIN_THRESH  = {-2,0,2,6,12,18,24,99}
 
-function terrain(x, y)
-    -- caching
-    local key = x..","..y
-    local c = cell_cache[key]
-    if c then return c[1], c[2], c[3], c[4] end
+function terrain(x,y)
+    -- cache hit ヌ●★ return 4-tuple fast
+    local key=x..","..y
+    local c=cell_cache[key]
+    if c then return unpack(c) end
 
-    -- inline height math
-    local scale = menu_options[1].values[menu_options[1].current]
-    local water_level = menu_options[2].values[menu_options[2].current]
-    local nx, ny = x / scale, y / scale
+    -- scaled coords + base continentalness
+    local scale=menu_options[1].values[menu_options[1].current]
+    local water_level=menu_options[2].values[menu_options[2].current]
+    local nx,ny=x/scale,y/scale
+    local cont=perlin2d(nx*0.03,ny*0.03,terrain_perm)*12
 
-    local cont = perlin2d(nx * 0.03, ny * 0.03, terrain_perm) * 12
-
-    local hdetail, amp, freq, max_amp = 0, 1, 1, 0
+    -- 3-octave detail
+    local hdetail,amp,freq,max_amp=0,1,1,0
     for i=1,3 do
-        hdetail += perlin2d(nx * freq, ny * freq, terrain_perm) * amp
-        max_amp += amp
-        amp *= 0.5
-        freq *= 2
+        hdetail+=perlin2d(nx*freq,ny*freq,terrain_perm)*amp
+        max_amp+=amp amp*=0.5 freq*=2
     end
-    hdetail = (hdetail / max_amp) * 10
+    hdetail=(hdetail/max_amp)*10
 
-    local rid = perlin2d(nx * 0.5, ny * 0.5, terrain_perm)
-    rid = abs(rid) ^ 1.5
-    local inland = max(0, (cont/12 + 0.5))
-    local mountain = rid * inland * 20
+    -- ridges + inland mountain factor
+    local rid=abs(perlin2d(nx*0.5,ny*0.5,terrain_perm))^1.5
+    local inland=max(0,cont/12+0.5)
+    local mountain=rid*inland*20
 
-    local h = cont + hdetail + mountain
-    h = flr(mid(h - water_level, -4, 28))
+    -- final clamped height
+    local h=flr(mid(cont+hdetail+mountain - water_level,-4,28))
 
-    -- inline terrain color lookup
-    local top, side, dark
+    -- palette lookup ヌ●★ cache and return via unpack
     for i=1,8 do
-        if h <= TERRAIN_THRESH[i] then
-            local p = (i-1)*3+1
-            top  = ord(TERRAIN_PAL_STR, p)
-            side = ord(TERRAIN_PAL_STR, p+1)
-            dark = ord(TERRAIN_PAL_STR, p+2)
-            break
+        if h<=TERRAIN_THRESH[i] then
+            local p=(i-1)*3+1
+            local tuple={ord(TERRAIN_PAL_STR,p),ord(TERRAIN_PAL_STR,p+1),ord(TERRAIN_PAL_STR,p+2),h}
+            cell_cache[key]=tuple
+            return unpack(tuple)
         end
     end
-
-    cell_cache[key] = { top, side, dark, h }
-    return top, side, dark, h
 end
+
 
 
 -- MAIN PICO-8 FUNCTIONS
 function _init()
     music(0)
+
+    palt(0, false)
+    palt(14, true)
+    
     -- game state & modes
     game_state = "startup"
     
@@ -97,7 +93,7 @@ function _init()
     startup_phase = "title"
     startup_timer = 0
     startup_view_range = 0
-    title_x1 = -64  -- Start HORIZON fully off-screen (8 sprites * 8 pixels)
+    title_x1 = -64  -- Start HORIZON fully off-screen
     title_x2 = 128  -- Start GLIDE fully off-screen
     
     -- menu panels
@@ -114,6 +110,7 @@ function _init()
     player_score = 0
     display_score = 0
     floating_texts = {}
+
     -- initialize particle system; reset its list and sync alias
     particle_sys:reset()
     
@@ -156,111 +153,101 @@ function _init()
     tile_manager:update_player_position(0, 0)
     
     -- set ship altitude
-    local terrain_h = player_ship:get_terrain_height_at(0, 0)
-    player_ship.current_altitude = terrain_h + player_ship.hover_height
+    player_ship.current_altitude = player_ship:get_terrain_height_at(0, 0) + player_ship.hover_height
 end
 
 
 function _update()
-    if game_state == "startup" then
-        -- tick intro timer
-        startup_timer += 1
-
-        -- ===== WORLD (startup/customize) =====
-        -- autonomous gentle drift
-        player_ship.vy = -0.1
-        player_ship.y += player_ship.vy
+    if game_state=="startup" then
+        -- intro timer + gentle drift
+        startup_timer+=1
+        player_ship.vy=-0.1
+        player_ship.y+=player_ship.vy
 
         -- face along motion
-        local svx = (player_ship.vx - player_ship.vy)
-        local svy = (player_ship.vx + player_ship.vy) * 0.5
-        player_ship.angle = atan2(svx, svy)
+        local svx=(player_ship.vx-player_ship.vy)
+        local svy=(player_ship.vx+player_ship.vy)*0.5
+        player_ship.angle=atan2(svx,svy)
 
         -- hover-lock to terrain
-        player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
-        player_ship.is_hovering = true
+        player_ship.current_altitude=player_ship:get_terrain_height_at(player_ship.x,player_ship.y)+player_ship.hover_height
+        player_ship.is_hovering=true
 
-        -- keep tiles streaming in intro/customize
-        tile_manager:update_player_position(player_ship.x, player_ship.y)
+        -- stream tiles
+        tile_manager:update_player_position(player_ship.x,player_ship.y)
+        tile_manager:update_tiles()
 
-        -- soft ambient particles
-        if startup_timer % 3 == 0 then
-            player_ship:spawn_particles(1, 0)
-        end
+        -- ambient particles
+        if startup_timer%3==0 then player_ship:spawn_particles(1,0) end
 
         -- camera snaps to ship
-        local tx, ty = player_ship:get_camera_target()
-        cam_offset_x, cam_offset_y = tx, ty
+        local tx,ty=player_ship:get_camera_target()
+        cam_offset_x,cam_offset_y=tx,ty
 
-        -- ===== PHASE-SPECIFIC UI/ANIM =====
-        if startup_phase == "title" then
-            -- zoom out & seed tiles while expanding
-            if startup_view_range < 7 then
-                startup_view_range += 0.5
-                view_range = flr(startup_view_range)
-                tile_manager:update_tiles()
+        -- phase logic
+        if startup_phase=="title" then
+            -- zoom out (view_range grows; tiles refill next frame via update_player_position)
+            if startup_view_range<7 then
+                startup_view_range+=0.5
+                view_range=flr(startup_view_range)
             end
-
             -- title slide
-            if title_x1 < 20 then title_x1 += 6 end
-            if title_x2 > 68 then title_x2 -= 6 end
-
+            if title_x1<20 then title_x1+=6 end
+            if title_x2>68 then title_x2-=6 end
             -- handoff to menu
-            if startup_view_range >= 7 and title_x1 >= 20 and title_x2 <= 68 then
-                startup_phase = "menu_select"
+            if startup_view_range>=7 and title_x1>=20 and title_x2<=68 then
+                startup_phase="menu_select"
                 init_menu_select()
             end
-
-        elseif startup_phase == "menu_select" then
+        elseif startup_phase=="menu_select" then
             update_menu_select()
-
-        elseif startup_phase == "customize" then
+        else -- "customize"
             update_customize()
         end
 
-    elseif game_state == "game" then
+    elseif game_state=="game" then
         if not player_ship.dead then
-            -- ===== WORLD (game) =====
+            -- world update
             player_ship:update()
             game_manager:update()
-
             -- camera ease
-            local tx, ty = player_ship:get_camera_target()
-            cam_offset_x += (tx - cam_offset_x) * 0.3
-            cam_offset_y += (ty - cam_offset_y) * 0.3
+            local tx,ty=player_ship:get_camera_target()
+            cam_offset_x+= (tx-cam_offset_x)*0.3
+            cam_offset_y+= (ty-cam_offset_y)*0.3
         else
-            -- dead: check for continue
+            -- restart
             if btnp(❎) or btnp(🅾️) then
-                player_ship.dead = false
-                player_ship.hp = 100
-                player_ship.x = 0
-                player_ship.y = 0
-                game_manager.active_panels = {}
-                enemies = {}
-                projectiles = {}
+                player_ship.dead=false
+                player_ship.hp=100
+                player_ship.x,player_ship.y=0,0
+                game_manager.active_panels={}
+                enemies,projectiles={},{}
             end
         end
-        -- projectiles / floating text / score tween / cache
+
+        -- projectiles
         update_projectiles()
 
-        local new_floats = {}
-        for f in all(floating_texts) do
-            if f:update() then add(new_floats, f) end
+        -- floating texts (remove finished in place)
+        for i=#floating_texts,1,-1 do
+            if not floating_texts[i]:update() then
+                deli(floating_texts,i)
+            end
         end
-        floating_texts = new_floats
 
-        if display_score < player_score then
-            local step = flr((player_score - display_score + 9) / 10)
-            display_score += (player_score - display_score < 10) and (player_score - display_score) or step
+        -- score tween
+        if display_score<player_score then
+            local diff=player_score-display_score
+            local step=flr((diff+9)/10)
+            display_score+= (diff<10) and diff or step
         end
     end
 
-    -- ===== COMMON: advance particle lifetimes & cap =====
-    -- use particle system to update and cap particles
+    -- particles + cache cleanup
     particle_sys:update()
-    
     tile_manager:cleanup_cache()
 end
+
 
 
 function _draw()
@@ -276,36 +263,35 @@ end
 
 
 
-function draw_minimap(x, y)
-    local ms, wr = 44, 32
-    local px_scale = (wr*2/ms)
-    local cx, cy = x + ms/2, y + ms/2
-    rectfill(x-1, y-1, x+ms, y+ms, 0)
-    local ship_x, ship_y = player_ship.x, player_ship.y
-    local half_ms = ms/2
-    for py = 0, ms-1 do
-        local wy_flr = flr(ship_y + (py - half_ms) * px_scale)
-        for px = 0, ms-1 do
-            pset(x + px, y + py, terrain(flr(ship_x + (px - half_ms) * px_scale), wy_flr))
+function draw_minimap(x,y)
+    -- sizes + step (each minimap pixel = s world units)
+    local ms,wr=44,32
+    local s=(wr*2)/ms
+
+    -- background
+    rectfill(x-1,y-1,x+ms,y+ms,0)
+
+    -- world window start at ship - wr, then step by s
+    local ship_x,ship_y=player_ship.x,player_ship.y
+    local start_wx,start_wy=ship_x-wr,ship_y-wr
+
+    -- raster terrain
+    for py=0,ms-1 do
+        local wy=flr(start_wy+py*s)
+        local wx=start_wx
+        for px=0,ms-1 do
+            pset(x+px,y+py,terrain(flr(wx),wy))
+            wx+=s
         end
     end
-    local view_box_size = ms * (view_range * 2) / (wr * 2)
-    rect(cx - view_box_size/2, cy - view_box_size/2, cx + view_box_size/2, cy + view_box_size/2, 7)
-    circfill(cx, cy, 1, 8) pset(cx, cy, 8)
+
+    -- view box + player dot
+    local cx,cy=x+ms/2,y+ms/2
+    local vb=ms*view_range/wr  -- ms*(2*vr)/(2*wr)
+    rect(cx-vb/2,cy-vb/2,cx+vb/2,cy+vb/2,7)
+    circfill(cx,cy,1,8) pset(cx,cy,8)
 end
 
-
-
-function draw_title_sprites()
-    palt(0, false)  -- Make sure black (0) is not transparent
-    palt(14, true)  -- Make color 14 transparent
-    
-    -- Now just draw the sprites with embedded shadows
-    draw_vertical_wave_sprites(0, title_x1, 10, 8, 1)  -- HORIZON
-    draw_vertical_wave_sprites(16, title_x2, 10 + 10, 6, 1)  -- GLIDE
-    
-    palt()  -- Reset transparency to defaults
-end
 
 -- Function to draw sprites with vertical wave animation
 function draw_vertical_wave_sprites(sprite_start, x, y, width_in_sprites, height_in_sprites)
@@ -347,27 +333,21 @@ end
 
 function draw_startup()
     cls(1)
-
     draw_world()
-    draw_title_sprites()
 
-    -- draw menu selection panels
-    if startup_phase == "menu_select" then
-        play_panel:draw()
-        customize_panel:draw()
-    end
-    
-    -- draw customization interface directly over the world
-    if startup_phase == "customize" then
-        -- draw all customization panels
-        for p in all(customization_panels) do
-            p:draw()
-        end
-        
-        -- draw minimap
-        draw_minimap(80, 32)
+    -- title
+    draw_vertical_wave_sprites(0,title_x1,10,8,1)
+    draw_vertical_wave_sprites(16,title_x2,20,6,1)
+
+    -- ui
+    if startup_phase=="menu_select" then
+        play_panel:draw() customize_panel:draw()
+    elseif startup_phase=="customize" then
+        for p in all(customization_panels) do p:draw() end
+        draw_minimap(80,32)
     end
 end
+
 
 function init_menu_select()
     play_panel = panel.new(-50, 90, nil, nil, "play", 11)
@@ -436,22 +416,26 @@ function update_customize()
             -- Seed (option 3)
             current_seed = flr(rnd(9999))
             
-            -- Update all panel texts
+            -- Update all panel texts (skip actions; show seed correctly)
             for p in all(customization_panels) do
                 if p.option_index then
                     local o = menu_options[p.option_index]
-                    p.text = "⬅️ " .. o.name .. ": " .. (o.is_seed and current_seed or tostr(o.values[o.current])) .. " ➡️"
+                    if o.is_action then
+                        p.text = "random"
+                    else
+                        p.text = "⬅️ "..o.name..": "..(o.is_seed and current_seed or tostr(o.values[o.current])).." ➡️"
+                    end
                 end
             end
+
             
             regenerate_world_live()
         end
     elseif option.is_seed then
-        if btnp(⬅️) or btnp(➡️) then
-            local new_index = option.current + (btnp(➡️) and 1 or -1)
-            option.current = (new_index < 1) and #option.values or (new_index > #option.values and 1 or new_index)
-            current_panel.text = "⬅️ " .. option.name .. ": " .. tostr(option.values[option.current]) .. " ➡️"
-        end
+        local changed=false
+        if btnp(⬅️) then current_seed=(current_seed-1)%10000 changed=true end
+        if btnp(➡️) then current_seed=(current_seed+1)%10000 changed=true end
+        if changed then current_panel.text="⬅️ "..option.name..": "..current_seed.." ➡️" end
     else
         if btnp(⬅️) then
             option.current -= 1
@@ -480,94 +464,73 @@ end
 
 
 
--- Regenerate world in real-time
 function regenerate_world_live()
-    -- Store ship position
-    local ship_x, ship_y = player_ship.x, player_ship.y
-    
-    -- Generate new terrain with current settings
-    terrain_perm = generate_permutation(current_seed)
-    cell_cache = {}
-    
-    -- Clear and regenerate tiles
+    -- new terrain + clear cache
+    terrain_perm=generate_permutation(current_seed)
+    cell_cache={}
+
+    -- rebuild tiles around current ship position
     tile_manager:init()
-    tile_manager:update_player_position(ship_x, ship_y)
+    tile_manager:update_player_position(player_ship.x,player_ship.y)
     tile_manager:update_tiles()
-    
-    -- Adjust ship altitude to new terrain
-    local new_height = player_ship:get_terrain_height_at(ship_x, ship_y)
-    player_ship.current_altitude = new_height + player_ship.hover_height
+
+    -- reset altitude to new terrain
+    player_ship.current_altitude=player_ship:get_terrain_height_at(player_ship.x,player_ship.y)+player_ship.hover_height
 end
 
+
 function update_menu_select()
-    -- Update panels
-    play_panel:update()
-    customize_panel:update()
-    
-    -- Handle input - now using up/down instead of left/right
+    -- update panels
+    play_panel:update() customize_panel:update()
+
+    -- toggle selection with up/down
     if btnp(⬆️) or btnp(⬇️) then
-        -- Toggle selection
-        play_panel.selected = not play_panel.selected
-        customize_panel.selected = not customize_panel.selected
+        local s=play_panel.selected
+        play_panel.selected=not s
+        customize_panel.selected=s
     end
-    
-    -- Confirm selection
+
+    -- confirm
     if btnp(❎) or btnp(🅾️) then
         if play_panel.selected then
-            -- Start game with current terrain
-            view_range = 7
+            view_range=7
             init_game()
         else
-            -- Enter customization mode
             enter_customize_mode()
         end
     end
 end
 
+
 function enter_customize_mode()
-    startup_phase = "customize"
-    customize_cursor = 1
-    customization_panels = {}
-    
-    local y_start = 32
-    local y_spacing = 12
-    local panel_index = 0
-    local delay_step = 2  -- frames between each panel animation start
-    
-    for i, option in ipairs(menu_options) do
+    startup_phase="customize" customize_cursor=1 customization_panels={}
+    local y_start,y_spacing,delay_step=32,12,2
+    local panel_index=0
+
+    for i=1,#menu_options do
+        local option=menu_options[i]
         if not option.is_action then
-            local y = y_start + panel_index * y_spacing
-            -- Arrows on far sides
-            local text = "⬅️ " .. option.name .. ": " .. 
-                (option.is_seed and current_seed or tostr(option.values[option.current])) .. " ➡️"
-            
-            local p = panel.new(-60, y, 66, 9, text, 6)
-            p.option_index = i
-            p.anim_delay = panel_index * delay_step  -- stagger the animations
-            p:set_position(6, y, false)
-            add(customization_panels, p)
-            panel_index += 1
+            local y=y_start+panel_index*y_spacing
+            local p=panel.new(-60,y,66,9,"⬅️ "..option.name..": "..(option.is_seed and current_seed or tostr(option.values[option.current])).." ➡️",6)
+            p.option_index=i p.anim_delay=panel_index*delay_step
+            p:set_position(6,y,false) add(customization_panels,p)
+            panel_index+=1
         end
     end
-    
-    -- randomize button with delay
-    local rp = panel.new(-60, y_start + 3 * y_spacing, 66, 9, "random", 5)
-    rp.option_index = 4
-    rp.anim_delay = panel_index * delay_step  -- continue the stagger
-    rp:set_position(6, y_start + 3 * y_spacing, false)
-    add(customization_panels, rp)
-    
-    -- start button - slides up last with extra delay
-    local sb = panel.new(50, 128, nil, 12, "play", 11)
-    -- play_panel = panel.new(-50, 90, nil, nil, "play", 11)
 
-    sb.is_start = true
-    sb.anim_delay = (panel_index + 1) * delay_step + 4  -- extra delay for emphasis
-    sb:set_position(50, 105, false)
-    add(customization_panels, sb)
-    
-    customization_panels[1].selected = true
+    local ry=y_start+3*y_spacing
+    local rp=panel.new(-60,ry,66,9,"random",5)
+    rp.option_index=4 rp.anim_delay=panel_index*delay_step
+    rp:set_position(6,ry,false) add(customization_panels,rp)
+
+    local sb=panel.new(50,128,nil,12,"play",11)
+    sb.is_start=true sb.anim_delay=(panel_index+1)*delay_step+4
+    sb:set_position(50,105,false) add(customization_panels,sb)
+
+    customization_panels[1].selected=true
 end
+
+
 
 
 
@@ -575,96 +538,90 @@ end
 function init_game()
     game_state = "game"
     
-    -- 𝘳eset scores/ui
+    -- Reset scores/ui
     player_score, display_score = 0, 0
     floating_texts = {}
     -- reset particle system
     particle_sys:reset()
     
-    -- 𝘯need to reset 𝘴hip state for game mode
+    -- Nneed to reset Ship state for game mode
     game_manager = game_manager.new()
     
     -- prevent immediate shooting
     player_ship.last_shot_time = time()
     
-    -- 𝘶pdate tiles for full view range
+    -- Update tiles for full view range
     tile_manager:update_player_position(player_ship.x, player_ship.y)
     
-    -- 𝘦nsure altitude is correct
+    -- Ensure altitude is correct
     player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
     last_cache_cleanup = time()
 end
 
-function draw_ws()
-    local nxt={}
-    for s in all(ws) do
-        s.r+=0.18 s.life-=1
-        local last=nil
-        for a=0,1,0.06 do
-            local wx=s.x+cos(a)*s.r
-            local wy=s.y+sin(a)*s.r
-            local _,_,_,h=terrain(flr(wx),flr(wy))
-            if h<=0 then
-                local px,py=iso(wx,wy)
-                -- connect short segments so it reads as a circle, not particles
-                if last then line(last[1],last[2],px,py,(h<=-2) and 12 or 7) end
-                last={px,py}
-            else
-                last=nil -- break at land edges
-            end
-        end
-        if s.life>0 then add(nxt,s) end
-    end
-    ws=nxt
-end
-
-
 function draw_world()
     -- water first
     for t in all(tile_manager.tile_list) do if t.height<=0 then t:draw() end end
-    -- rings on top of water
-    draw_ws()
-    -- land on top (hides any ring bits near shore)
+
+    -- water rings (update + draw)
+    for i=#ws,1,-1 do
+        local s=ws[i]
+        s.r+=0.18 s.life-=1
+        local lx,ly
+        for a=0,1,0.06 do
+            local wx,wy=s.x+cos(a)*s.r,s.y+sin(a)*s.r
+            local _,_,_,h=terrain(flr(wx),flr(wy))
+            if h<=0 then
+                local px,py=iso(wx,wy)
+                if lx then line(lx,ly,px,py,(h<=-2) and 12 or 7) end
+                lx,ly=px,py
+            else
+                lx,ly=nil,nil -- break at land edges
+            end
+        end
+        if s.life<=0 then deli(ws,i) end
+    end
+
+    -- land on top
     for t in all(tile_manager.tile_list) do if t.height>0 then t:draw() end end
 
+    -- fx + ship
     particle_sys:draw(cam_offset_x,cam_offset_y)
     if not player_ship.dead then player_ship:draw() end
 end
 
 
 
+
 function draw_game()
     cls(1)
-    
     draw_world()
-    
-    -- DRAW PROJECTILES
-    draw_projectiles()
-    
-    -- 3. Draw game events (circles, beacons, etc - but NOT their UI panels)
-    if game_manager.state == "active" and game_manager.current_event then
+
+    -- projectiles
+    for p in all(projectiles) do
+        local sx,sy=iso(p.x,p.y) sy-=p.z*block_h
+        circfill(sx,sy,2,0)
+        circfill(sx,sy,1,p.owner.is_enemy and 8 or 12)
+    end
+
+    -- current event visuals (not UI)
+    if game_manager.state=="active" and game_manager.current_event then
         game_manager.current_event:draw()
     end
 
-    -- Draw Cursor
+    -- target cursor
     if player_ship.target and player_ship.target.get_screen_pos then
-        local tsx, tsy = player_ship.target:get_screen_pos()
-        rect(tsx - 8, tsy - 8, tsx + 8, tsy + 8, 8)  -- red square
+        local tx,ty=player_ship.target:get_screen_pos()
+        rect(tx-8,ty-8,tx+8,ty+8,8)
     end
-        
-    -- 5. Draw floating texts (score popups)
-    for f in all(floating_texts) do
-        f:draw()
-    end
-    
-    -- 6. Draw UI elements last (including all panels)
+
+    -- floating texts
+    for f in all(floating_texts) do f:draw() end
+
+    -- ui + panels
     draw_ui()
-    
-    -- 7. Draw all panels on top of everything
-    for p in all(game_manager.active_panels) do
-        p:draw()
-    end
+    for p in all(game_manager.active_panels) do p:draw() end
 end
+
 
 function draw_segmented_bar(x, y, value, max_value, filled_col, empty_col)
     local filled=flr(value*15/max_value)
@@ -717,9 +674,7 @@ end
 function floating_text:draw()
     -- Draw black background box
     local text_width = #self.text * 4
-    local text_height = 5
-    rectfill(self.x - text_width/2 - 1, self.y - 1, 
-                self.x + text_width/2, self.y + text_height, 0)
+    rectfill(self.x - text_width/2 - 1, self.y - 1, self.x + text_width/2, self.y + 5, 0)
 
     -- Draw white text
     print(self.text, self.x - text_width/2, self.y, self.col)
@@ -746,17 +701,11 @@ function panel.new(x, y, w, h, text, col, life)
     }, panel)
 end
 
-function panel:set_position(x, y, instant)
-    if instant then
-        self.x = x
-        self.y = y
-        self.target_x = x
-        self.target_y = y
-    else
-        self.target_x = x
-        self.target_y = y
-    end
+function panel:set_position(x,y,instant)
+    self.target_x,self.target_y=x,y
+    if instant then self.x,self.y=x,y end
 end
+
 
 function panel:update()
     -- handle animation delay
@@ -811,6 +760,7 @@ function panel:draw()
     -- centered text
     print(self.text, dx+(dw-#self.text*4)/2, dy+(dh-5)/2, self.selected and self.col or 7)
 end
+
 
 
 -- PARTICLE SYSTEM
@@ -1316,7 +1266,7 @@ function ship:update_targeting()
     -- forward vector
     local fx,fy=cos(self.angle),sin(self.angle)
 
-    -- search best target (≤15, in front: dot > 0.5*dist)
+    -- search best target (ヌ웃さ15, in front: dot > 0.5*dist)
     local best,found=15,nil
     if self.is_enemy then
         local t=player_ship
@@ -1571,13 +1521,6 @@ function update_projectiles()
     projectiles = new_proj
 end
 
-function draw_projectiles()
-    for p in all(projectiles) do
-        local sx, sy = iso(p.x, p.y) sy -= p.z * block_h
-        circfill(sx, sy, 2, 0) 
-        circfill(sx, sy, 1, p.owner.is_enemy and 8 or 12)
-    end
-end
 
 
 -- COMBAT EVENT
@@ -1645,7 +1588,7 @@ function combat_event:update()
         end
     end
 
-    -- player death ヌ●★ game over
+    -- player death game over
     if player_ship.hp <= 0 then
         self.completed, self.success = true, false
         player_ship.dead = true
@@ -1671,32 +1614,36 @@ end
 
 
 
-function draw_arrow_to(target_x, target_y, source_x, source_y, col, orbit_dist)
-    local dx, dy = target_x - source_x, target_y - source_y
-    if dist_trig(dx, dy) < 2 then return end
-    local angle = atan2(dx, dy)
-    
-    local arrow_x = source_x + cos(angle) * orbit_dist
-    local arrow_y = source_y + sin(angle) * orbit_dist
-    
-    local sx,sy = iso(arrow_x,arrow_y)
-    sy -= player_ship.current_altitude * block_h
-    
-    local screen_dx, screen_dy = (dx - dy) * half_tile_width, (dx + dy) * half_tile_height
-    local screen_angle = atan2(screen_dx, screen_dy)
-    
-    local arrow_size = 6
-    local tip_x = sx + cos(screen_angle) * arrow_size
-    local tip_y = sy + sin(screen_angle) * arrow_size * 0.5
-    
-    local back_angle = screen_angle + 0.5
-    local back1_x = sx + cos(back_angle - 0.18) * arrow_size * 0.7
-    local back1_y = sy + sin(back_angle - 0.18) * arrow_size * 0.35
-    local back2_x = sx + cos(back_angle + 0.18) * arrow_size * 0.7
-    local back2_y = sy + sin(back_angle + 0.18) * arrow_size * 0.35
-    
-    draw_triangle(tip_x, tip_y, back1_x, back1_y, back2_x, back2_y, col)
+function draw_arrow_to(target_x,target_y,source_x,source_y,col,orbit_dist)
+    -- vector to target; skip if very close
+    local dx,dy=target_x-source_x,target_y-source_y
+    if dx*dx+dy*dy<4 then return end
+
+    -- orbit point around source (world space)
+    local a=atan2(dx,dy)
+    local ax,ay=source_x+cos(a)*orbit_dist, source_y+sin(a)*orbit_dist
+
+    -- project to screen
+    local sx,sy=iso(ax,ay)
+    sy-=player_ship.current_altitude*block_h
+
+    -- screen-facing angle from isometric delta
+    local sdx,sdy=(dx-dy)*half_tile_width,(dx+dy)*half_tile_height
+    local sa=atan2(sdx,sdy)
+
+    -- arrow triangle
+    local s=6
+    local tx,ty=sx+cos(sa)*s, sy+sin(sa)*s*0.5
+    local ba=sa+0.5
+    local bx,by=s*0.7,s*0.35
+    draw_triangle(
+        tx,ty,
+        sx+cos(ba-0.18)*bx, sy+sin(ba-0.18)*by,
+        sx+cos(ba+0.18)*bx, sy+sin(ba+0.18)*by,
+        col
+    )
 end
+
 
 -- TILE CLASS
 tile = {}
@@ -1742,31 +1689,31 @@ end
 
 
 function tile:draw()
-    local sx, sy=cam_offset_x+self.base_sx, cam_offset_y+self.base_sy
+    local sx,sy=cam_offset_x+self.base_sx,cam_offset_y+self.base_sy
+    local lb,rb=cam_offset_x+self.lb,cam_offset_x+self.rb
 
-    -- WATER: top diamond + 1-line ripple
+    -- water: top diamond + single ripple (opposite blue)
     if self.height<=0 then
-        local c=(self.height<=-2) and 1 or 12
-        diamond(sx,sy,c)
-        -- slow vertical wobble with per-tile phase
+        diamond(sx,sy,self.top_col)
         local yb=flr(sy+self.r+sin(time()+(self.x+self.y)/8))
-        line(cam_offset_x+self.lb, yb, cam_offset_x+self.rb, yb, (c==1) and 12 or 7)
+        line(lb,yb,rb,yb,(self.height<=-2) and 12 or 1)
         return
     end
 
-    -- LAND: V4 (anchored 2 loops), then top + outlines
+    -- land: faces then top
     local hp=self.hp
     local sy2=sy-hp
     local by=cam_offset_y+self.by-hp
-    local lx=cam_offset_x+self.lb
-    local rx=cam_offset_x+self.rb
     local m=self.face
-
-    if (m&1)>0 then for i=0,hp do line(lx,sy2+i, sx,by+i, self.side_col) end end -- south
-    if (m&2)>0 then for i=0,hp do line(rx,sy2+i, sx,by+i, self.dark_col) end end -- east
-
+    if (m&1)>0 or (m&2)>0 then
+        for i=0,hp do
+            if (m&1)>0 then line(lb,sy2+i,sx,by+i,self.side_col) end
+            if (m&2)>0 then line(rb,sy2+i,sx,by+i,self.dark_col) end
+        end
+    end
     diamond(sx,sy2,self.top_col)
 end
+
 
 
 
@@ -1791,28 +1738,31 @@ function tile_manager:init()
 end
 
 function tile_manager:add_tile(x,y)
-    if not self.tiles[x] then self.tiles[x]={} end
-    if not self.tiles[x][y] then
-        local t=tile.new(x,y)
-        self.tiles[x][y]=t
-        -- Insert sorted
-        local k=t.x+t.y
-        local i=#self.tile_list
-        while i>0 and (self.tile_list[i].x+self.tile_list[i].y)>k do i-=1 end
-        add(self.tile_list,t,i+1)
+    local row=self.tiles[x]
+    if not row then row={} self.tiles[x]=row end
+    if row[y] then return end
+
+    local t=tile.new(x,y)
+    row[y]=t
+
+    -- insert sorted by (x+y)
+    local list=self.tile_list
+    local k=t.x+t.y
+    local i=#list
+    while i>0 and (list[i].x+list[i].y)>k do i-=1 end
+    add(list,t,i+1)
+end
+
+
+function tile_manager:remove_tile(x,y)
+    local row=self.tiles[x]
+    if row and row[y] then
+        del(self.tile_list,row[y])
+        row[y]=nil
+        if not next(row) then self.tiles[x]=nil end
     end
 end
 
-function tile_manager:remove_tile(x, y)
-    if self.tiles[x] and self.tiles[x][y] then
-        local t = self.tiles[x][y]
-        del(self.tile_list, t)
-        self.tiles[x][y] = nil
-        
-        -- Clean up empty columns
-        if not next(self.tiles[x]) then self.tiles[x]=nil end
-    end
-end
 
 function tile_manager:update_player_position(px, py)
     local nx, ny = flr(px), flr(py)
@@ -1824,74 +1774,67 @@ function tile_manager:update_player_position(px, py)
 end
 
 function tile_manager:update_tiles()
-    local nminx, nminy = self.player_x - view_range, self.player_y - view_range
-    local nmaxx, nmaxy = self.player_x + view_range, self.player_y + view_range
-    local first_fill = #self.tile_list == 0  -- UNCOMMENT THIS LINE
-    local range_changed = self.view_range_cached ~= view_range
+    local nminx,nminy=self.player_x-view_range,self.player_y-view_range
+    local nmaxx,nmaxy=self.player_x+view_range,self.player_y+view_range
 
-    -- first fill or view range changed: do a full (rare) rebuild
-    if first_fill or range_changed then
-        for x=nminx,nmaxx do
-            for y=nminy,nmaxy do 
-                self:add_tile(x,y) 
-            end
-        end
-        self.min_x, self.max_x, self.min_y, self.max_y = nminx, nmaxx, nminy, nmaxy
-        self.view_range_cached = view_range
-        self.dx_pending, self.dy_pending = 0, 0
+    -- first fill or range change → full rebuild
+    if #self.tile_list<1 or self.view_range_cached!=view_range then
+        for x=nminx,nmaxx do for y=nminy,nmaxy do self:add_tile(x,y) end end
+        self.min_x,self.max_x,self.min_y,self.max_y=nminx,nmaxx,nminy,nmaxy
+        self.view_range_cached=view_range self.dx_pending,self.dy_pending=0,0
         return
     end
 
-    local dx, dy = self.dx_pending or 0, self.dy_pending or 0
-    if dx == 0 and dy == 0 then return end
+    local dx,dy=self.dx_pending or 0,self.dy_pending or 0
+    if dx==0 and dy==0 then return end
 
     -- moved in x?
-    if dx > 0 then
-        for y=nminy,nmaxy do self:add_tile(nmaxx, y) end
-        for y=self.min_y,self.max_y do self:remove_tile(self.min_x, y) end
-    elseif dx < 0 then
-        for y=nminy,nmaxy do self:add_tile(nminx, y) end
-        for y=self.min_y,self.max_y do self:remove_tile(self.max_x, y) end
+    if dx>0 then
+        for y=nminy,nmaxy do self:add_tile(nmaxx,y) end
+        for y=self.min_y,self.max_y do self:remove_tile(self.min_x,y) end
+    elseif dx<0 then
+        for y=nminy,nmaxy do self:add_tile(nminx,y) end
+        for y=self.min_y,self.max_y do self:remove_tile(self.max_x,y) end
     end
 
     -- moved in y?
-    if dy > 0 then
-        for x=nminx,nmaxx do self:add_tile(x, nmaxy) end
-        for x=self.min_x,self.max_x do self:remove_tile(x, self.min_y) end
-    elseif dy < 0 then
-        for x=nminx,nmaxx do self:add_tile(x, nminy) end
-        for x=self.min_x,self.max_x do self:remove_tile(x, self.max_y) end
+    if dy>0 then
+        for x=nminx,nmaxx do self:add_tile(x,nmaxy) end
+        for x=self.min_x,self.max_x do self:remove_tile(x,self.min_y) end
+    elseif dy<0 then
+        for x=nminx,nmaxx do self:add_tile(x,nminy) end
+        for x=self.min_x,self.max_x do self:remove_tile(x,self.max_y) end
     end
 
-    self.min_x, self.max_x, self.min_y, self.max_y = nminx, nmaxx, nminy, nmaxy
-    self.dx_pending, self.dy_pending = 0, 0
+    self.min_x,self.max_x,self.min_y,self.max_y=nminx,nmaxx,nminy,nmaxy
+    self.dx_pending,self.dy_pending=0,0
 end
+
+
 
 
 function tile_manager:cleanup_cache()
-    if time() - last_cache_cleanup > 1 then
-        -- cover tiles AND minimap
-        local tile_r = view_range * 2
-        local mini_r = 36  -- wr(32) + margin
-        local R = max(tile_r, mini_r)
+    -- run at most ~1s
+    local t=time()
+    if t-last_cache_cleanup<=1 then return end
 
+    -- keep cells near player (covers tiles + minimap)
+    local R=max(view_range*2,36)
+    local x1,y1=self.player_x-R,self.player_y-R
+    local x2,y2=self.player_x+R,self.player_y+R
 
-        local x1, y1 = self.player_x - R, self.player_y - R
-        local x2, y2 = self.player_x + R, self.player_y + R
-
-        local new_cache = {}
-        for k,c in pairs(cell_cache) do
-            -- k is "x,y"
-            local parts = split(k, ",", true) -- convert_numbers=true
-            local x, y = parts[1], parts[2]
-            if x>=x1 and x<=x2 and y>=y1 and y<=y2 then
-                new_cache[k] = c
-            end
+    -- prune in place
+    for k in pairs(cell_cache) do
+        local p=split(k,",",true) -- "x,y" -> numbers
+        local x,y=p[1],p[2]
+        if x<x1 or x>x2 or y<y1 or y>y2 then
+            cell_cache[k]=nil
         end
-        cell_cache = new_cache
-        last_cache_cleanup = time()
     end
+
+    last_cache_cleanup=t
 end
+
 
 
 
@@ -1903,31 +1846,32 @@ function perlin2d(x,y,p)
     local xf,yf=x-fx,y-fy
     local u=xf*xf*(3-2*xf)
     local v=yf*yf*(3-2*yf)
-    local px,px1=p[xi],p[xi+1]
-    local a,b=px+yi,px1+yi
+
+    -- hash corners (no px/px1 locals)
+    local a,b=p[xi]+yi,p[xi+1]+yi
     local aa,ab,ba,bb=p[a],p[a+1],p[b],p[b+1]
+
+    -- gradients
     local ax=((aa&1)<1 and xf or -xf)+((aa&2)<2 and yf or -yf)
     local bx=((ba&1)<1 and xf-1 or 1-xf)+((ba&2)<2 and yf or -yf)
     local cx=((ab&1)<1 and xf or -xf)+((ab&2)<2 and yf-1 or 1-yf)
     local dx=((bb&1)<1 and xf-1 or 1-xf)+((bb&2)<2 and yf-1 or 1-yf)
+
+    -- bilerp via one temp
     local x1=ax+(bx-ax)*u
-    local x2=cx+(dx-cx)*u
-    return x1+(x2-x1)*v
+    return x1+((cx+(dx-cx)*u)-x1)*v
 end
+
 
 
 function generate_permutation(seed)
     srand(seed)
-    local perm = {}
-    -- Use only 128 values for faster wrapping
-    for i = 0, 127 do
-        perm[i] = flr(rnd(128))
+    local p={}
+    for i=0,127 do
+        local v=flr(rnd(128))
+        p[i],p[i+128]=v,v
     end
-    -- duplicate for wrapping
-    for i = 0, 127 do
-        perm[128 + i] = perm[i]
-    end
-    return perm
+    return p
 end
 
 
