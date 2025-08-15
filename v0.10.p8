@@ -1267,11 +1267,12 @@ function ship.new(start_x, start_y, is_enemy)
         ramp_boost = 0.2,
         -- combat
         is_enemy = is_enemy,
-        hp = 100,
+        max_hp = is_enemy and 50 or 100,  -- <-- ADD THIS
+        hp = is_enemy and 50 or 100,      -- <-- UPDATE THIS
         target = nil,
         fire_timer = 0,
         focus = 0,
-        ai_phase = is_enemy and rnd(4) or 0,  -- random phase 0-4
+        ai_phase = is_enemy and rnd(4) or 0,
     }, ship)
 end
 
@@ -1280,18 +1281,28 @@ end
 function ship:ai_update()
     if not player_ship then return end
 
-    -- toggle between chase/flee every 2 seconds
-    local mode = (flr(time() + self.ai_phase) % 4) < 2
-    
     -- base vector to player
     local dx = player_ship.x - self.x
     local dy = player_ship.y - self.y
     local dist = dist_trig(dx, dy)
     
-    -- flip for fleeing
+    -- determine AI mode based on health and distance
+    local mode -- true = chase, false = flee
+    
+    if self.hp <= 30 then
+        -- low health: flee, but not if already too far
+        mode = dist > 15  -- if too far, approach instead
+    elseif dist > 20 then
+        -- very far: always approach
+        mode = true
+    else
+        -- middle range: toggle between chase/flee every 2 seconds
+        mode = (flr(time() + self.ai_phase) % 6) < 3
+    end
+    
+    -- flip direction for fleeing
     if not mode then
-        dx = -dx
-        dy = -dy
+        dx, dy = -dx, -dy
     end
 
     -- separation from other enemies
@@ -1315,18 +1326,18 @@ function ship:ai_update()
         self.vy += dy * a
     end
 
-    -- fire when chasing and close
-    if mode and dist < 10 then
+    -- update targeting (shared logic)
+    local has_target = self:update_targeting()
+    
+    -- fire when chasing and have a valid target (not when fleeing)
+    if mode and has_target then
         self.fire_timer -= 1
         if self.fire_timer <= 0 then
-            self.target = player_ship  -- set target before firing
-            self:fire_at()  -- no parameter
+            self:fire_at()
             self.fire_timer = 10
         end
     end
 end
-
-
 
 function ship:update_cursor()
     self.focus -= min(2, self.focus)
@@ -1364,7 +1375,6 @@ function ship:update_cursor()
     end
 end
 
--- Simplified: always shoot at self.target
 function ship:fire_at()
     if not self.target then return end  -- safety check
     
@@ -1392,10 +1402,58 @@ function ship:get_terrain_height_at(x, y)
     return max(0, h)
 end
 
+function ship:update_targeting()
+    self.focus -= min(2, self.focus)
+    
+    -- determine potential targets based on who we are
+    local targets = self.is_enemy and {player_ship} or enemies
+    
+    -- find best target in front cone
+    local best_dist = 15  -- max targeting range
+    local found_target = nil
+    
+    for t in all(targets) do
+        local dx, dy = t.x - self.x, t.y - self.y
+        local dist = dist_trig(dx, dy)
+        
+        if dist < best_dist then
+            -- check if roughly in front (simplified dot product)
+            local fx = cos(self.angle)
+            local fy = sin(self.angle)
+            local dot = (dx*fx + dy*fy) / max(0.0001, dist)
+            
+            if dot > 0.5 then  -- in front cone (120°)
+                best_dist = dist
+                found_target = t
+            end
+        end
+    end
+    
+    if found_target then
+        self.target = found_target
+        self.focus = min(100, self.focus + 5)
+        return true  -- we have a valid target
+    else
+        -- no valid target - for player, target a point in front
+        if not self.is_enemy then
+            local world_angle = atan2(self.vx, self.vy)
+            self.target = {
+                x = self.x + cos(world_angle) * 10,
+                y = self.y + sin(world_angle) * 10
+            }
+        else
+            self.target = nil
+        end
+        return false  -- no valid target
+    end
+end
+
 function ship:update()
     if self.is_enemy then
         self:ai_update()
     else
+        tile_manager:update_player_position(self.x, self.y)
+
         -- existing player input
         local input_x, input_y = 0, 0
 
@@ -1419,13 +1477,14 @@ function ship:update()
         self.vx += input_x * 0.707
         self.vy += input_y * 0.707
         
-        -- Player shooting with cursor
-        self:update_cursor()
+        -- update targeting (shared logic)
+        self:update_targeting()
+        
+        -- player shooting
         if btn(❎) then
-            -- Add a simple fire rate limiter
             if not self.last_shot_time then self.last_shot_time = 0 end
-            if time() - self.last_shot_time > 0.1 then  -- shoot every 0.1 seconds max
-                self:fire_at()  -- no parameter needed now!
+            if time() - self.last_shot_time > 0.1 then
+                self:fire_at()
                 self.last_shot_time = time()
             end
         end
@@ -1446,19 +1505,13 @@ function ship:update()
     self.x += self.vx
     self.y += self.vy
 
-    -- ONLY update tile manager for player ship!
-    if not self.is_enemy then
-        tile_manager:update_player_position(self.x, self.y)
-    end
-
     local current_terrain = self:get_terrain_height_at(old_x, old_y)
     local new_terrain = self:get_terrain_height_at(self.x, self.y)
     local height_diff = new_terrain - current_terrain
 
     -- Check if we hit a wall that's too steep
     if height_diff > self.max_climb then
-        local can_move_x = false
-        local can_move_y = false
+        local can_move_x, can_move_y = false, false
         
         local terrain_x = self:get_terrain_height_at(self.x, old_y)
         if terrain_x - current_terrain <= self.max_climb then
@@ -1627,11 +1680,9 @@ function ship:draw()
     end
     
     -- enemy health bar only
-    if self.is_enemy and self.hp < 100 then
-        -- draw grey background for full bar
+    if self.is_enemy then
+        local w = self.hp / self.max_hp * 10
         rectfill(sx - 5, sy - 10, sx + 5, sy - 9, 5)  -- grey background
-        -- draw red health on top
-        local w = self.hp / 100 * 10
         rectfill(sx - 5, sy - 10, sx - 5 + w, sy - 9, 8)  -- red health
     end
 end
@@ -1699,6 +1750,7 @@ end
 function draw_projectiles()
     for p in all(projectiles) do
         local sx,sy = iso(p.x,p.y) sy-=p.z*block_h
+        circfill(sx, sy, 2, 0)
         circfill(sx, sy, 1, p.owner.is_enemy and 8 or 12)  -- red for enemies, blue for player
     end
 end
