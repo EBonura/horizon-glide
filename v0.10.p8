@@ -666,7 +666,13 @@ function draw_game()
     if game_manager.state == "active" and game_manager.current_event then
         game_manager.current_event:draw()
     end
-    
+
+    -- Draw Cursor
+    if player_ship.target and player_ship.target.get_screen_pos then
+        local tsx, tsy = player_ship.target:get_screen_pos()
+        rect(tsx - 8, tsy - 8, tsx + 8, tsy + 8, 8)  -- red square
+    end
+        
     -- 5. Draw floating texts (score popups)
     for f in all(floating_texts) do
         f:draw()
@@ -974,9 +980,11 @@ function game_manager.new()
         current_event = nil,
         idle_start_time = time(),
         idle_duration = 3,
-        event_types = {"circles", "combat"},
+        -- event_types = {"circles", "combat"},
+        event_types = {"combat"},
+
         active_panels = {},
-        next_event_index = 1,  -- add this
+        next_event_index = 1,
 
         -- difficulty progression (flat vars)
         difficulty_circle_round   = 0,
@@ -1049,7 +1057,7 @@ function game_manager:end_event(success)
     self.state = "idle"
     self.idle_start_time = time()
     
-    local message = success and "𝘦𝘷𝘦𝘯𝘵 𝘤𝘰𝘮𝘱𝘭𝘦𝘵𝘦!" or "𝘦𝘷𝘦𝘯𝘵 𝘧𝘢𝘪𝘭𝘦𝘥!"
+    local message = success and "eVENT cOMPLETE!" or "eVENT fAILED!"
     local col = success and 11 or 8
     
     local cp = panel.new(30, 90, nil, nil, message, col, 90)
@@ -1354,15 +1362,6 @@ function ship:update_cursor()
             y = self.y + sin(world_angle) * 10
         }
     end
-
-    -- expanding water rings only when moving fast enough
-    if self.is_hovering  and self:get_speed() > 0.2 and self:get_terrain_height_at(self.x,self.y) <= 0 then
-        self.st = (self.st or 0) + 1
-        if self.st > 3 then
-            add(ws, {x=self.x, y=self.y, r=0, life=28})
-            self.st = 0
-        end
-    end
 end
 
 -- Simplified: always shoot at self.target
@@ -1542,6 +1541,15 @@ function ship:update()
         local screen_vy = (self.vx + self.vy) * 0.5
         self.angle = atan2(screen_vx, screen_vy)
     end
+
+    -- expanding water rings only when moving fast enough
+    if self.is_hovering and self:get_speed() > 0.2 and self:get_terrain_height_at(self.x,self.y) <= 0 then
+        self.st = (self.st or 0) + 1
+        if self.st > 3 then
+            add(ws, {x=self.x, y=self.y, r=0, life=28})
+            self.st = 0
+        end
+    end
 end
 
 function ship:get_screen_pos()
@@ -1551,8 +1559,24 @@ function ship:get_screen_pos()
 end
 
 function ship:get_camera_target()
-    local sx,sy = (self.x - self.y) * half_tile_width, (self.x + self.y) * half_tile_height  -- keep no cam_offset here
+    local sx,sy = (self.x - self.y) * half_tile_width, (self.x + self.y) * half_tile_height
     sy -= self.current_altitude * block_h
+    
+    -- camera focus on nearest enemy when close
+    if not self.is_enemy then
+        local ne, nd = nil, 10  -- max focus distance
+        for e in all(enemies) do
+            local d = dist_trig(e.x - self.x, e.y - self.y)
+            if d < nd then ne, nd = e, d end
+        end
+        if ne then
+            -- midpoint between player and enemy
+            local mx, my = (self.x + ne.x) * 0.5, (self.y + ne.y) * 0.5
+            sx = (mx - my) * half_tile_width
+            sy = (mx + my) * half_tile_height - self.current_altitude * block_h
+        end
+    end
+    
     return 64 - sx, 64 - sy
 end
 
@@ -1602,29 +1626,13 @@ function ship:draw()
         pset(points[3][1], points[3][2], c)
     end
     
-    -- cursor/health in one conditional
-    if self.is_enemy then
-        if self.hp < 100 then
-            -- draw grey background for full bar
-            rectfill(sx - 5, sy - 10, sx + 5, sy - 9, 5)  -- grey background
-            -- draw red health on top
-            local w = self.hp / 100 * 10
-            rectfill(sx - 5, sy - 10, sx - 5 + w, sy - 9, 8)  -- red health
-        end
-    elseif self.target then
-        -- Check if target is an enemy ship (has get_screen_pos method)
-        local tsx, tsy
-        if self.target.get_screen_pos then
-            tsx, tsy = self.target:get_screen_pos()
-            local f = self.focus / 100
-            local size = 8 - f * 3
-            local col = f >= 1 and (flr(time()*10)%2==0 and 10 or 7) or 8
-            line(tsx - size, tsy, tsx - size/2, tsy, col)
-            line(tsx + size/2, tsy, tsx + size, tsy, col)
-            line(tsx, tsy - size/2, tsx, tsy - size/4, col)
-            line(tsx, tsy + size/4, tsx, tsy + size/2, col)
-        end
-        -- If it's just a virtual target point, we don't draw cursor
+    -- enemy health bar only
+    if self.is_enemy and self.hp < 100 then
+        -- draw grey background for full bar
+        rectfill(sx - 5, sy - 10, sx + 5, sy - 9, 5)  -- grey background
+        -- draw red health on top
+        local w = self.hp / 100 * 10
+        rectfill(sx - 5, sy - 10, sx - 5 + w, sy - 9, 8)  -- red health
     end
 end
 
