@@ -6,6 +6,8 @@ A retro-styled isometric arcade racing game built in PICO-8.
 
 Horizon Glide is an infinite isometric racing game featuring procedurally generated terrain. Race and fight with your hovering ship through dynamic landscapes with varying elevation, from water levels to mountain peaks.
 
+![Horizon Glide Screenshot](assets/v0%209-restore1_0.png)
+
 ## Features
 
 - **Infinite terrain generation** - Explore endless procedurally generated worlds
