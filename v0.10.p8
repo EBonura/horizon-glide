@@ -441,30 +441,28 @@ function update_customize()
     -- handle value changes
     if option.is_action then
         if btnp(❎) or btnp(🅾️) then
-            if option.name == "random" then
-                -- Randomize ALL options
-                -- Scale (option 1)
-                menu_options[1].current = flr(rnd(#menu_options[1].values)) + 1
-                
-                -- Water (option 2)
-                menu_options[2].current = flr(rnd(#menu_options[2].values)) + 1
-                
-                -- Seed (option 3)
-                current_seed = flr(rnd(9999))
-                
-                -- Update all panel texts
-                for p in all(customization_panels) do
-                if p.option_index==1 then
-                    p.text="⬅️ scale: "..menu_options[1].values[menu_options[1].current].." ➡️"
-                elseif p.option_index==2 then
-                    p.text="⬅️ water: "..menu_options[2].values[menu_options[2].current].." ➡️"
-                elseif p.option_index==3 then
-                    p.text="⬅️ seed: "..current_seed.." ➡️"
-                end
-                end
-                
-                regenerate_world_live()
+            -- Randomize ALL options
+            -- Scale (option 1)
+            menu_options[1].current = flr(rnd(#menu_options[1].values)) + 1
+            
+            -- Water (option 2)
+            menu_options[2].current = flr(rnd(#menu_options[2].values)) + 1
+            
+            -- Seed (option 3)
+            current_seed = flr(rnd(9999))
+            
+            -- Update all panel texts
+            for p in all(customization_panels) do
+            if p.option_index==1 then
+                p.text="⬅️ scale: "..menu_options[1].values[menu_options[1].current].." ➡️"
+            elseif p.option_index==2 then
+                p.text="⬅️ water: "..menu_options[2].values[menu_options[2].current].." ➡️"
+            elseif p.option_index==3 then
+                p.text="⬅️ seed: "..current_seed.." ➡️"
             end
+            end
+            
+            regenerate_world_live()
         end
     elseif option.is_seed then
         if btnp(⬅️) then
@@ -555,7 +553,7 @@ function enter_customize_mode()
     local y_start = 32
     local y_spacing = 12
     local panel_index = 0
-    local delay_step = 4  -- frames between each panel animation start
+    local delay_step = 2  -- frames between each panel animation start
     
     for i, option in ipairs(menu_options) do
         if not option.is_action then
@@ -581,10 +579,12 @@ function enter_customize_mode()
     add(customization_panels, rp)
     
     -- start button - slides up last with extra delay
-    local sb = panel.new(38, 128, nil, 12, "start game", 11)
+    local sb = panel.new(50, 128, nil, 12, "play", 11)
+    -- play_panel = panel.new(-50, 90, nil, nil, "play", 11)
+
     sb.is_start = true
     sb.anim_delay = (panel_index + 1) * delay_step + 4  -- extra delay for emphasis
-    sb:set_position(38, 105, false)
+    sb:set_position(50, 105, false)
     add(customization_panels, sb)
     
     customization_panels[1].selected = true
@@ -596,19 +596,22 @@ end
 function init_game()
     game_state = "game"
     
-    -- Reset scores/ui
+    -- 𝘳eset scores/ui
     player_score, display_score = 0, 0
     floating_texts = {}
     -- reset particle system
     particle_sys:reset()
     
-    -- Nneed to reset Ship state for game mode
+    -- 𝘯need to reset 𝘴hip state for game mode
     game_manager = game_manager.new()
     
-    -- Update tiles for full view range
+    -- prevent immediate shooting
+    player_ship.last_shot_time = time()
+    
+    -- 𝘶pdate tiles for full view range
     tile_manager:update_player_position(player_ship.x, player_ship.y)
     
-    -- Ensure altitude is correct
+    -- 𝘦nsure altitude is correct
     player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
     last_cache_cleanup = time()
 end
@@ -972,8 +975,8 @@ function game_manager.new()
         idle_start_time = time(),
         idle_duration = 3,
         event_types = {"circles", "combat"},
-        -- event_types = {"combat"},
         active_panels = {},
+        next_event_index = 1,  -- add this
 
         -- difficulty progression (flat vars)
         difficulty_circle_round   = 0,
@@ -983,6 +986,9 @@ function game_manager.new()
         difficulty_recharge_start = 2,
         difficulty_recharge_step  = 0.2,
         difficulty_recharge_min   = 0.5,
+        
+        -- combat difficulty
+        difficulty_combat_round = 0,
     }, game_manager)
 end
 
@@ -1016,7 +1022,8 @@ function game_manager:add_panel(panel)
 end
 
 function game_manager:start_random_event()
-    local event_type = self.event_types[flr(rnd(#self.event_types)) + 1]
+    local event_type = self.event_types[self.next_event_index]
+    self.next_event_index = self.next_event_index % #self.event_types + 1
 
     if event_type == "circles" then
         local num_rings = self.difficulty_rings_base
@@ -1042,18 +1049,22 @@ function game_manager:end_event(success)
     self.state = "idle"
     self.idle_start_time = time()
     
-    local message = success and "EVENT COMPLETE!" or "EVENT FAILED!"
+    local message = success and "𝘦𝘷𝘦𝘯𝘵 𝘤𝘰𝘮𝘱𝘭𝘦𝘵𝘦!" or "𝘦𝘷𝘦𝘯𝘵 𝘧𝘢𝘪𝘭𝘦𝘥!"
     local col = success and 11 or 8
     
-    local cp = panel.new(40, 90, nil, nil, message, col, 90)
-    cp:set_position(64 - 40, 105, false)
+    local cp = panel.new(30, 90, nil, nil, message, col, 90)
+    cp:set_position(30, 105, false)
     cp.selected = success
 
     self:add_panel(cp)
     
     -- increase difficulty only if success
     if success then
-        self.difficulty_circle_round += 1
+        if self.current_event and self.current_event.is_combat then
+            self.difficulty_combat_round += 1
+        else
+            self.difficulty_circle_round += 1
+        end
     end
     
     self.current_event = nil
@@ -1694,15 +1705,19 @@ function combat_event.new()
         success = false,
         instruction_panel = nil,
         start_count = 0,
-        switched = false
+        switched = false,
+        is_combat = true  -- marker for difficulty tracking
     }, combat_event)
 
     -- intro banner
     self.instruction_panel = panel.new(64 - 50, 4, nil, nil, "enemy wave incoming!", 8)
     game_manager:add_panel(self.instruction_panel)
 
+    -- progressive difficulty: 2 + round number, max 6
+    local num_enemies = min(2 + game_manager.difficulty_combat_round, 6)
+    
     enemies = {}
-    for i=1,3 do
+    for i=1,num_enemies do
         local a, d = rnd(1), 10 + rnd(5)
         local ex = player_ship.x + cos(a) * d
         local ey = player_ship.y + sin(a) * d
