@@ -1,13 +1,13 @@
 pico-8 cartridge // http://www.pico-8.com
 version 41
 __lua__
--- 𝘩𝘰𝘳𝘪𝘻𝘰𝘯 𝘨𝘭𝘪𝘥𝘦
--- 𝘢n infinite isometric racing game
+-- HORIZON GLIDE
+-- An infinite isometric racing game
 
--- 𝘩elper functions
-function ceil(x) return -flr(-x) end
-function clamp(v, lo, hi) return mid(v, lo, hi) end
+-- Helper functions
 function dist_trig(dx, dy) local ang = atan2(dx, dy) return dx * cos(ang) + dy * sin(ang) end
+function iso(x,y) return cam_offset_x+(x-y)*half_tile_width, cam_offset_y+(x+y)*half_tile_height end
+
 
 function fmt2(n)
     local s=flr(n*100+0.5)
@@ -17,54 +17,30 @@ function fmt2(n)
     return (neg and "-" or "")..int.."."..(frac<10 and "0"..frac or frac)
 end
 
--- 𝘵riangle drawing function
-function draw_triangle(x1, y1, x2, y2, x3, y3, col)
-    -- 𝘴ort points by y coordinate
-    if y2 < y1 then
-        x1, y1, x2, y2 = x2, y2, x1, y1
-    end
-    if y3 < y1 then
-        x1, y1, x3, y3 = x3, y3, x1, y1
-    end
-    if y3 < y2 then
-        x2, y2, x3, y3 = x3, y3, x2, y2
-    end
-    
-    -- 𝘦arly exit for degenerate triangles
-    if y1 == y3 then return end
-    
-    -- 𝘱re-calculate inverse heights to avoid division in loops
-    local inv_h12 = (y2 > y1) and 1 / (y2 - y1) or 0
-    local inv_h13 = 1 / (y3 - y1)  -- 𝘵his can't be zero due to early exit
-    local inv_h23 = (y3 > y2) and 1 / (y3 - y2) or 0
-    
-    -- 𝘱re-calculate deltas
-    local dx12, dx13, dx23  = x2 - x1, x3 - x1, x3 - x2
-    
-    -- 𝘧ill triangle using horizontal lines
-    for y = y1, y3 do
-        local xa, xb
-        
-        if y <= y2 then
-            -- 𝘵op half of triangle
-            local t = (y - y1)
-            xa = (y2 > y1) and x1 + dx12 * t * inv_h12 or x1
-            xb = x1 + dx13 * t * inv_h13
-        else
-            -- 𝘣ottom half of triangle
-            local t2, t1 = y - y2, y - y1
-            xa = (y3 > y2) and x2 + dx23 * t2 * inv_h23 or x2
-            xb = x1 + dx13 * t1 * inv_h13
-        end
-        
-        -- 𝘥raw horizontal line
-        if xa > xb then xa, xb = xb, xa end
-        line(xa, y, xb, y, col)
-    end
+function draw_triangle(l,t,c,m,r,b,col)
+	color(col)
+	while t>m or m>b do
+		l,t,c,m=c,m,l,t
+		while m>b do
+			c,m,r,b=r,b,c,m
+		end
+	end
+	local e,j=l,(r-l)/(b-t)
+	while m do
+		local i=(c-l)/(m-t)
+		for t=flr(t),min(flr(m)-1,127) do
+			rectfill(l,t,e,t)
+			l+=i
+			e+=j
+		end
+		l,t,m,c,b=c,m,b,r
+	end
+	pset(r,t)
 end
+
 -- terrain color lookup tables (top, side, dark triplets; height thresholds)
-𝘵𝘦𝘳𝘳𝘢𝘪𝘯_𝘱𝘢𝘭_𝘴𝘵𝘳 = "\1\0\0\12\1\1\15\4\2\3\1\0\11\3\1\4\2\0\6\5\0\7\6\5"
-𝘵𝘦𝘳𝘳𝘢𝘪𝘯_𝘵𝘩𝘳𝘦𝘴𝘩  = {-2,0,2,6,12,18,24,99}
+TERRAIN_PAL_STR = "\1\0\0\12\1\1\15\4\2\3\1\0\11\3\1\4\2\0\6\5\0\7\6\5"
+TERRAIN_THRESH  = {-2,0,2,6,12,18,24,99}
 
 function terrain(x, y)
     -- caching
@@ -94,16 +70,16 @@ function terrain(x, y)
     local mountain = rid * inland * 20
 
     local h = cont + hdetail + mountain
-    h = flr(clamp(h - water_level, -4, 28))
+    h = flr(mid(h - water_level, -4, 28))
 
     -- inline terrain color lookup
     local top, side, dark
     for i=1,8 do
-        if h <= 𝘵𝘦𝘳𝘳𝘢𝘪𝘯_𝘵𝘩𝘳𝘦𝘴𝘩[i] then
+        if h <= TERRAIN_THRESH[i] then
             local p = (i-1)*3+1
-            top  = ord(𝘵𝘦𝘳𝘳𝘢𝘪𝘯_𝘱𝘢𝘭_𝘴𝘵𝘳, p)
-            side = ord(𝘵𝘦𝘳𝘳𝘢𝘪𝘯_𝘱𝘢𝘭_𝘴𝘵𝘳, p+1)
-            dark = ord(𝘵𝘦𝘳𝘳𝘢𝘪𝘯_𝘱𝘢𝘭_𝘴𝘵𝘳, p+2)
+            top  = ord(TERRAIN_PAL_STR, p)
+            side = ord(TERRAIN_PAL_STR, p+1)
+            dark = ord(TERRAIN_PAL_STR, p+2)
             break
         end
     end
@@ -113,7 +89,7 @@ function terrain(x, y)
 end
 
 
--- 𝘮𝘢𝘪𝘯 𝘱𝘪𝘤𝘰-8 𝘧𝘶𝘯𝘤𝘵𝘪𝘰𝘯𝘴
+-- MAIN PICO-8 FUNCTIONS
 function _init()
     music(0)
     -- game state & modes
@@ -123,8 +99,8 @@ function _init()
     startup_phase = "title"
     startup_timer = 0
     startup_view_range = 0
-    title_x1 = -64  -- 𝘴tart 𝘩𝘰𝘳𝘪𝘻𝘰𝘯 fully off-screen (8 sprites * 8 pixels)
-    title_x2 = 128  -- 𝘴tart 𝘨𝘭𝘪𝘥𝘦 fully off-screen
+    title_x1 = -64  -- Start HORIZON fully off-screen (8 sprites * 8 pixels)
+    title_x2 = 128  -- Start GLIDE fully off-screen
     
     -- menu panels
     play_panel = nil
@@ -132,7 +108,7 @@ function _init()
     customization_panels = {}
     customize_cursor = 1
     
-    -- 𝘤𝘳𝘦𝘢𝘵𝘦 𝘱𝘭𝘢𝘺𝘦𝘳 𝘴𝘩𝘪𝘱 𝘳𝘪𝘨𝘩𝘵 𝘢𝘸𝘢𝘺
+    -- CREATE PLAYER SHIP RIGHT AWAY
     player_ship = ship.new(0, 0)
     player_ship.is_hovering = true
     
@@ -150,8 +126,6 @@ function _init()
     -- camera variables
     cam_offset_x = 64
     cam_offset_y = 64
-    cam_target_x = 0
-    cam_target_y = 0
     
     -- tile system constants
     view_range = 0
@@ -166,10 +140,10 @@ function _init()
     
     -- menu configuration (unchanged)
     menu_options = {
-        {name="terrain scale", values={8, 10, 12, 14, 16}, current=2},
-        {name="water level", values={-4, -3, -2, -1, 0, 1, 2, 3, 4}, current=4},
+        {name="scale", values={8, 10, 12, 14, 16}, current=2},
+        {name="water", values={-4, -3, -2, -1, 0, 1, 2, 3, 4}, current=4},
         {name="seed", values={}, current=1, is_seed=true},
-        {name="randomize seed", is_action=true},
+        {name="random", is_action=true},  -- shortened name
     }
     
     menu_cursor = 1
@@ -180,7 +154,6 @@ function _init()
     cell_cache = {}
     tile_manager:init()
     tile_manager:update_player_position(0, 0)
-    tile_manager:update_tiles()
     
     -- set ship altitude
     local terrain_h = player_ship:get_terrain_height_at(0, 0)
@@ -193,7 +166,7 @@ function _update()
         -- tick intro timer
         startup_timer += 1
 
-        -- ===== 𝘸𝘰𝘳𝘭𝘥 (startup/customize) =====
+        -- ===== WORLD (startup/customize) =====
         -- autonomous gentle drift
         player_ship.vy = -0.1
         player_ship.y += player_ship.vy
@@ -204,8 +177,7 @@ function _update()
         player_ship.angle = atan2(svx, svy)
 
         -- hover-lock to terrain
-        local th = player_ship:get_terrain_height_at(player_ship.x, player_ship.y)
-        player_ship.current_altitude = th + player_ship.hover_height
+        player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
         player_ship.is_hovering = true
 
         -- keep tiles streaming in intro/customize
@@ -220,7 +192,7 @@ function _update()
         local tx, ty = player_ship:get_camera_target()
         cam_offset_x, cam_offset_y = tx, ty
 
-        -- ===== 𝘱𝘩𝘢𝘴𝘦-𝘴𝘱𝘦𝘤𝘪𝘧𝘪𝘤 𝘶𝘪/𝘢𝘯𝘪𝘮 =====
+        -- ===== PHASE-SPECIFIC UI/ANIM =====
         if startup_phase == "title" then
             -- zoom out & seed tiles while expanding
             if startup_view_range < 7 then
@@ -247,31 +219,27 @@ function _update()
         end
 
     elseif game_state == "game" then
-        -- ===== 𝘸𝘰𝘳𝘭𝘥 (game) =====
-        player_ship:update()
-        game_manager:update()
+        if not player_ship.dead then
+            -- ===== WORLD (game) =====
+            player_ship:update()
+            game_manager:update()
 
-        -- exhaust based on speed while hovering
-        if player_ship.is_hovering then
-            local speed = player_ship:get_speed()
-            if speed > 0.01 then
-                player_ship.particle_timer += 1
-                local spawn_rate = max(1, 5 - flr(speed * 10))
-                if player_ship.particle_timer >= spawn_rate then
-                    player_ship.particle_timer = 0
-                    player_ship:spawn_particles(1 + flr(speed * 5))
-                end
-            end
+            -- camera ease
+            local tx, ty = player_ship:get_camera_target()
+            cam_offset_x += (tx - cam_offset_x) * 0.3
+            cam_offset_y += (ty - cam_offset_y) * 0.3
         else
-            player_ship.particle_timer = 0
+            -- dead: check for continue
+            if btnp(❎) or btnp(🅾️) then
+                player_ship.dead = false
+                player_ship.hp = 100
+                player_ship.x = 0
+                player_ship.y = 0
+                game_manager.active_panels = {}
+                enemies = {}
+                projectiles = {}
+            end
         end
-
-        -- camera ease
-        local tx, ty = player_ship:get_camera_target()
-        cam_offset_x += (tx - cam_offset_x) * 0.3
-        cam_offset_y += (ty - cam_offset_y) * 0.3
-        cam_target_x, cam_target_y = tx, ty
-
         -- projectiles / floating text / score tween / cache
         update_projectiles()
 
@@ -282,12 +250,12 @@ function _update()
         floating_texts = new_floats
 
         if display_score < player_score then
-            local diff = player_score - display_score
-            display_score += (diff < 10) and player_score or (display_score + ceil(diff * 0.1))
+            local step = flr((player_score - display_score + 9) / 10)
+            display_score += (player_score - display_score < 10) and (player_score - display_score) or step
         end
     end
 
-    -- ===== 𝘤𝘰𝘮𝘮𝘰𝘯: advance particle lifetimes & cap =====
+    -- ===== COMMON: advance particle lifetimes & cap =====
     -- use particle system to update and cap particles
     particle_sys:update()
     
@@ -298,120 +266,85 @@ end
 function _draw()
     if game_state == "startup" then
         draw_startup()
-    elseif game_state == "menu" then
-        draw_menu()
     elseif game_state == "game" then
         draw_game()
     end
     -- performance monitoring
     printh("mem: "..tostr(stat(0)).." \t| cpu: "..tostr(stat(1)).." \t| fps: "..tostr(stat(7)))
-    draw_cpu_indicator(122, 6)
 end
 
-function draw_cpu_indicator(x, y)
-    if stat(1) <= 1 then return end  -- only show when over budget
-    local pulse = 0.75 + 0.75 * sin(time() * 8)
-    circfill(x+1, y+1, 3 + pulse + 1, 0)
-    circfill(x, y, 3 + pulse, 8)
-end
 
 
 
 function draw_minimap(x, y)
-    local ms, wr = 50, 32
+    local ms, wr = 44, 32
     local px_scale = (wr*2/ms)
     local cx, cy = x + ms/2, y + ms/2
     
-    -- 𝘣ackground and border
+    -- Background and border
     rectfill(x-1, y-1, x+ms, y+ms, 0)
     
-    -- 𝘤ache calculations
+    -- Cache calculations
     local ship_x = player_ship.x
     local ship_y = player_ship.y
     local half_ms = ms/2
     
-    -- 𝘥raw terrain pixels
+    -- Draw terrain pixels
     for py = 0, ms-1 do
-        local wy_base = ship_y + (py - half_ms) * px_scale
-        local wy_flr = flr(wy_base)
-        
+        local wy_flr = flr(ship_y + (py - half_ms) * px_scale)
         for px = 0, ms-1 do
-            local wx_base = ship_x + (px - half_ms) * px_scale
-            local wx_flr = flr(wx_base)
-            
+            local wx_flr = flr(ship_x + (px - half_ms) * px_scale)
             local col = terrain(wx_flr, wy_flr)
             pset(x + px, y + py, col)
         end
     end
     
-    -- 𝘷iew box
+    -- View box
     local vbs = ms * (view_range * 2) / (wr * 2)
     rect(cx - vbs/2, cy - vbs/2, cx + vbs/2, cy + vbs/2, 7)
     
-    -- 𝘱layer position
+    -- Player position
     circfill(cx, cy, 1, 8)
     pset(cx, cy, 8)
 end
 
 
 function draw_title_sprites()
-    local title_y = 10  -- 𝘺 position for 𝘩𝘰𝘳𝘪𝘻𝘰𝘯
-    local shadow_offset = 1
+    palt(0, false)  -- Make sure black (0) is not transparent
+    palt(14, true)  -- Make color 14 transparent
     
-    -- 𝘥raw outline using 4 shadows (palette swapped)
-    pal(12, 0)  -- 𝘳eplace cyan with black for outline
-    pal(7, 0)   -- 𝘳eplace white with black too
+    -- Now just draw the sprites with embedded shadows
+    draw_vertical_wave_sprites(0, title_x1, 10, 8, 1)  -- HORIZON
+    draw_vertical_wave_sprites(16, title_x2, 10 + 10, 6, 1)  -- GLIDE
     
-    -- 𝘥raw 4 directional shadows for outline effect
-    local directions = {
-        {shadow_offset, 0},    -- right
-        {-shadow_offset, 0},   -- left
-        {0, shadow_offset},    -- down
-        {0, -shadow_offset}    -- up
-    }
-    
-    for i=1,#directions do
-        local dx, dy = directions[i][1], directions[i][2]
-        
-        -- 𝘩𝘰𝘳𝘪𝘻𝘰𝘯 outline
-        draw_vertical_wave_sprites(0, title_x1 + dx, title_y + dy, 8, 1)
-        
-        -- 𝘨𝘭𝘪𝘥𝘦 outline
-        draw_vertical_wave_sprites(16, title_x2 + dx, title_y + 10 + dy, 6, 1)
-    end
-    
-    pal()  -- 𝘳eset palette once
-    
-    -- 𝘥raw actual text with vertical wave animation on top
-    draw_vertical_wave_sprites(0, title_x1, title_y, 8, 1)  -- 𝘩𝘰𝘳𝘪𝘻𝘰𝘯
-    draw_vertical_wave_sprites(16, title_x2, title_y + 10, 6, 1)  -- 𝘨𝘭𝘪𝘥𝘦
+    palt()  -- Reset transparency to defaults
 end
 
--- 𝘧unction to draw sprites with vertical wave animation
+-- Function to draw sprites with vertical wave animation
 function draw_vertical_wave_sprites(sprite_start, x, y, width_in_sprites, height_in_sprites)
-    -- 𝘤alculate wave position (moves from left to right)
-    local wave_speed = 0.5  -- 𝘩ow fast the wave travels
-    local wave_width = 20  -- 𝘸idth of the wave in pixels
-    local wave_amplitude = 2  -- 𝘩ow far pixels move up/down
+    -- Calculate wave position (moves from left to right)
+    local wave_speed = 0.5  -- How fast the wave travels
+    local wave_width = 20  -- Width of the wave in pixels
+    local wave_amplitude = 2  -- How far pixels move up/down
     
-    -- 𝘸ave position that loops across the text width
+    -- Wave position that loops across the text width
     local total_width = width_in_sprites * 8
     local wave_position = (time() * wave_speed * 100) % (total_width + wave_width * 2) - wave_width
     
-    -- 𝘥raw each vertical strip
+    -- Draw each vertical strip
     for strip_x = 0, total_width - 1 do
-        -- 𝘤alculate distance from wave center
+        -- Calculate distance from wave center
         local distance_from_wave = abs(strip_x - wave_position)
         
-        -- 𝘤alculate wave offset (only affects pixels near the wave)
+        -- Calculate wave offset (only affects pixels near the wave)
         local wave_offset = 0
         if distance_from_wave < wave_width then
-            -- 𝘤reate a smooth bump using cosine
+            -- Create a smooth bump using cosine
             local wave_progress = distance_from_wave / wave_width
             wave_offset = cos(wave_progress * 0.5) * wave_amplitude
         end
         
-        -- 𝘶se sspr to draw just this vertical strip with offset
+        -- Use sspr to draw just this vertical strip with offset
         sspr(
             sprite_start % 16 * 8 + strip_x,  -- source x in sprite sheet
             flr(sprite_start / 16) * 8,  -- source y in sprite sheet
@@ -425,63 +358,46 @@ function draw_vertical_wave_sprites(sprite_start, x, y, width_in_sprites, height
     end
 end
 
--- 𝘮odified draw_startup function
 function draw_startup()
     cls(1)
 
-    -- 𝘢lways draw world first (background)
-    for tile in all(tile_manager.tile_list) do
-        tile:draw()
-    end
-
-    -- 𝘢lways draw particles via particle system
-    particle_sys:draw(cam_offset_x, cam_offset_y)
-
-    -- 𝘢lways draw ship
-    player_ship:draw()
-
-    -- 𝘥raw title using 𝘴𝘱𝘳𝘪𝘵𝘦𝘴 with wave effect
+    draw_world()
     draw_title_sprites()
 
-    -- 𝘥raw menu selection panels
+    -- draw menu selection panels
     if startup_phase == "menu_select" then
         play_panel:draw()
         customize_panel:draw()
     end
     
-    -- 𝘥raw customization interface directly over the world
+    -- draw customization interface directly over the world
     if startup_phase == "customize" then
-        -- 𝘥raw all customization panels
+        -- draw all customization panels
         for p in all(customization_panels) do
             p:draw()
         end
         
-        -- 𝘥raw minimap
-        draw_minimap(74, 32)
-        
-        -- 𝘥raw controls hint at bottom
-        print("⬆️⬇️:select ⬅️➡️:change", 26, 120, 5)
+        -- draw minimap
+        draw_minimap(80, 32)
     end
 end
 
 function init_menu_select()
-    -- 𝘱lay panel slides in from the left
-    play_panel = panel.new(-50, 90, nil, nil, "play",  {col=11, border_style="full", pulse=true})
+    play_panel = panel.new(-50, 90, nil, nil, "play", 11)
     play_panel.selected = true
-    play_panel:set_position(50, 90, false)  -- 𝘴lide to final position
+    play_panel:set_position(50, 90, false)
     
-    -- 𝘤ustomize panel slides in from the right
-    customize_panel = panel.new(128, 104, nil, nil, "customize", {col=12, border_style="full"})
-    customize_panel:set_position(40, 104, false)  -- 𝘴lide to final position
+    customize_panel = panel.new(128, 104, nil, nil, "customize", 12)
+    customize_panel:set_position(40, 104, false)
 end
 
 function update_customize()
-    -- 𝘶pdate all panels
+    -- update all panels
     for p in all(customization_panels) do
         p:update()
     end
     
-    -- 𝘯avigation
+    -- navigation
     if btnp(⬆️) then
         customization_panels[customize_cursor].selected = false
         customize_cursor -= 1
@@ -497,7 +413,7 @@ function update_customize()
     
     local current_panel = customization_panels[customize_cursor]
     
-    -- 𝘩andle 𝘴tart 𝘨ame button
+    -- handle start game button
     if current_panel.is_start then
         if btnp(❎) or btnp(🅾️) then
             view_range = 7
@@ -506,13 +422,13 @@ function update_customize()
         return
     end
     
-    -- 𝘨et the option this panel represents
+    -- get the option this panel represents
     local option_index = current_panel.option_index
     if not option_index then return end
     
     local option = menu_options[option_index]
     
-    -- 𝘴tore old value to detect changes
+    -- store old value to detect changes
     local old_value = nil
     if option.is_seed then
         old_value = current_seed
@@ -520,43 +436,57 @@ function update_customize()
         old_value = option.values[option.current]
     end
     
-    -- 𝘩andle value changes
+    -- handle value changes
     if option.is_action then
         if btnp(❎) or btnp(🅾️) then
-            if option.name == "randomize seed" then
+            if option.name == "random" then
+                -- Randomize ALL options
+                -- Scale (option 1)
+                menu_options[1].current = flr(rnd(#menu_options[1].values)) + 1
+                
+                -- Water (option 2)
+                menu_options[2].current = flr(rnd(#menu_options[2].values)) + 1
+                
+                -- Seed (option 3)
                 current_seed = flr(rnd(9999))
-                -- 𝘶pdate seed panel text
+                
+                -- Update all panel texts
                 for p in all(customization_panels) do
-                    if p.option_index == 3 then  -- 𝘴eed option index
-                        p.text = "seed: " .. current_seed
-                    end
+                if p.option_index==1 then
+                    p.text="⬅️ scale: "..menu_options[1].values[menu_options[1].current].." ➡️"
+                elseif p.option_index==2 then
+                    p.text="⬅️ water: "..menu_options[2].values[menu_options[2].current].." ➡️"
+                elseif p.option_index==3 then
+                    p.text="⬅️ seed: "..current_seed.." ➡️"
                 end
+                end
+                
                 regenerate_world_live()
             end
         end
     elseif option.is_seed then
         if btnp(⬅️) then
             current_seed = max(0, current_seed - 1)
-            current_panel.text = option.name .. ": " .. current_seed
+            current_panel.text = "⬅️ " .. option.name .. ": " .. current_seed .. " ➡️"
         end
         if btnp(➡️) then
             current_seed = min(9999, current_seed + 1)
-            current_panel.text = option.name .. ": " .. current_seed
+            current_panel.text = "⬅️ " .. option.name .. ": " .. current_seed .. " ➡️"
         end
     else
         if btnp(⬅️) then
             option.current -= 1
             if option.current < 1 then option.current = #option.values end
-            current_panel.text = option.name .. ": " .. tostr(option.values[option.current])
+            current_panel.text = "⬅️ " .. option.name .. ": " .. tostr(option.values[option.current]) .. " ➡️"
         end
         if btnp(➡️) then
             option.current += 1
             if option.current > #option.values then option.current = 1 end
-            current_panel.text = option.name .. ": " .. tostr(option.values[option.current])
+            current_panel.text = "⬅️ " .. option.name .. ": " .. tostr(option.values[option.current]) .. " ➡️"
         end
     end
     
-    -- 𝘤heck if value changed and regenerate world if so
+    -- check if value changed and regenerate world if so
     local new_value = nil
     if option.is_seed then
         new_value = current_seed
@@ -569,49 +499,47 @@ function update_customize()
     end
 end
 
--- 𝘳egenerate world in real-time
+
+
+-- Regenerate world in real-time
 function regenerate_world_live()
-    -- 𝘴tore ship position
+    -- Store ship position
     local ship_x, ship_y = player_ship.x, player_ship.y
     
-    -- 𝘨enerate new terrain with current settings
+    -- Generate new terrain with current settings
     terrain_perm = generate_permutation(current_seed)
     cell_cache = {}
     
-    -- 𝘤lear and regenerate tiles
+    -- Clear and regenerate tiles
     tile_manager:init()
     tile_manager:update_player_position(ship_x, ship_y)
     tile_manager:update_tiles()
     
-    -- 𝘢djust ship altitude to new terrain
+    -- Adjust ship altitude to new terrain
     local new_height = player_ship:get_terrain_height_at(ship_x, ship_y)
     player_ship.current_altitude = new_height + player_ship.hover_height
 end
 
 function update_menu_select()
-    -- 𝘶pdate panels
+    -- Update panels
     play_panel:update()
     customize_panel:update()
     
-    -- 𝘩andle input - now using up/down instead of left/right
+    -- Handle input - now using up/down instead of left/right
     if btnp(⬆️) or btnp(⬇️) then
-        -- 𝘵oggle selection
+        -- Toggle selection
         play_panel.selected = not play_panel.selected
         customize_panel.selected = not customize_panel.selected
-        
-        -- 𝘶pdate visual properties
-        play_panel.pulse = play_panel.selected
-        customize_panel.pulse = customize_panel.selected
     end
     
-    -- 𝘤onfirm selection
+    -- Confirm selection
     if btnp(❎) or btnp(🅾️) then
         if play_panel.selected then
-            -- 𝘴tart game with current terrain
+            -- Start game with current terrain
             view_range = 7
             init_game()
         else
-            -- 𝘦nter customization mode
+            -- Enter customization mode
             enter_customize_mode()
         end
     end
@@ -623,35 +551,38 @@ function enter_customize_mode()
     customization_panels = {}
     
     local y_start = 32
-    local y_spacing = 10
+    local y_spacing = 12
     local panel_index = 0
+    local delay_step = 4  -- frames between each panel animation start
     
     for i, option in ipairs(menu_options) do
         if not option.is_action then
             local y = y_start + panel_index * y_spacing
-            local text = option.name .. ": " .. 
-                (option.is_seed and current_seed or tostr(option.values[option.current]))
+            -- Arrows on far sides
+            local text = "⬅️ " .. option.name .. ": " .. 
+                (option.is_seed and current_seed or tostr(option.values[option.current])) .. " ➡️"
             
-            local p = panel.new(-70, y, 56, 9, text, 
-                {text_col=6, col=11, text_align="left"})
+            local p = panel.new(-60, y, 66, 9, text, 6)
             p.option_index = i
-            p:set_position(2, y, false)
+            p.anim_delay = panel_index * delay_step  -- stagger the animations
+            p:set_position(6, y, false)
             add(customization_panels, p)
             panel_index += 1
         end
     end
     
-    -- 𝘢dd randomize button
-    local rp = panel.new(-70, y_start + 3 * y_spacing, 56, 9, "randomize seed", {col=5, text_align="left"})
+    -- randomize button with delay
+    local rp = panel.new(-60, y_start + 3 * y_spacing, 66, 9, "random", 5)
     rp.option_index = 4
-    rp:set_position(2, y_start + 3 * y_spacing, false)
+    rp.anim_delay = panel_index * delay_step  -- continue the stagger
+    rp:set_position(6, y_start + 3 * y_spacing, false)
     add(customization_panels, rp)
     
-    -- 𝘴tart button - auto width, taller height
-    local sb = panel.new(48, 120, 32, nil, "start game",
-        {col=11, border_style="full", pulse=true, tall=true})
+    -- start button - slides up last with extra delay
+    local sb = panel.new(38, 128, nil, 12, "start game", 11)
     sb.is_start = true
-    sb:set_position(48, 105, false)
+    sb.anim_delay = (panel_index + 1) * delay_step + 4  -- extra delay for emphasis
+    sb:set_position(38, 105, false)
     add(customization_panels, sb)
     
     customization_panels[1].selected = true
@@ -659,103 +590,87 @@ end
 
 
 
--- 𝘨𝘢𝘮𝘦 𝘧𝘶𝘯𝘤𝘵𝘪𝘰𝘯𝘴
+-- GAME FUNCTIONS
 function init_game()
     game_state = "game"
     
-    -- 𝘳eset scores/ui
+    -- Reset scores/ui
     player_score, display_score = 0, 0
     floating_texts = {}
     -- reset particle system
     particle_sys:reset()
     
-    -- 𝘯need to reset 𝘴hip state for game mode
+    -- Nneed to reset Ship state for game mode
     game_manager = game_manager.new()
     
-    -- 𝘶pdate tiles for full view range
+    -- Update tiles for full view range
     tile_manager:update_player_position(player_ship.x, player_ship.y)
-    tile_manager:update_tiles()
     
-    -- 𝘦nsure altitude is correct
+    -- Ensure altitude is correct
     player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
     last_cache_cleanup = time()
 end
 
+function draw_world()
+    for tile in all(tile_manager.tile_list) do tile:draw() end
+    particle_sys:draw(cam_offset_x, cam_offset_y)
+    if not player_ship.dead then player_ship:draw() end
+end
 
 function draw_game()
     cls(1)
     
-    -- 1. 𝘥raw world elements first
-    -- 𝘥raw all tiles
-    for tile in all(tile_manager.tile_list) do
-        tile:draw()
-    end
+    draw_world()
     
-    -- 2. 𝘥raw particles (behind ship) via particle system
-    particle_sys:draw(cam_offset_x, cam_offset_y)
-    
-    -- 𝘥𝘳𝘢𝘸 𝘱𝘳𝘰𝘫𝘦𝘤𝘵𝘪𝘭𝘦𝘴
+    -- DRAW PROJECTILES
     draw_projectiles()
     
-    -- 3. 𝘥raw game events (circles, beacons, etc - but 𝘯𝘰𝘵 their 𝘶𝘪 panels)
+    -- 3. Draw game events (circles, beacons, etc - but NOT their UI panels)
     if game_manager.state == "active" and game_manager.current_event then
         game_manager.current_event:draw()
     end
     
-    -- 4. 𝘥raw ship
-    player_ship:draw()
-    
-    -- 5. 𝘥raw floating texts (score popups)
+    -- 5. Draw floating texts (score popups)
     for f in all(floating_texts) do
         f:draw()
     end
     
-    -- 6. 𝘥raw 𝘶𝘪 elements last (including all panels)
+    -- 6. Draw UI elements last (including all panels)
     draw_ui()
     
-    -- 7. 𝘥raw all panels on top of everything
+    -- 7. Draw all panels on top of everything
     for p in all(game_manager.active_panels) do
         p:draw()
     end
 end
 
 function draw_segmented_bar(x, y, value, max_value, filled_col, empty_col)
-    local rect_width = 3
-    local rect_height = 3
-    local spacing = 1
-    local max_bars = 15
-    
-    -- 𝘤alculate how many bars to fill
-    local ratio = value / max_value
-    local filled_bars = flr(ratio * max_bars)
-    
-    -- 𝘥raw each segment
-    for i = 0, max_bars - 1 do
-        local seg_x = x + i * (rect_width + spacing)
-        local col = i < filled_bars and filled_col or empty_col
-        rectfill(seg_x, y, seg_x + rect_width - 1, y + rect_height - 1, col)
+    local filled=flr(value*15/max_value)
+    for i=0,14 do
+        local s=x+i*4
+        rectfill(s,y,s+2,y+2,(i<filled) and filled_col or empty_col)
     end
 end
 
 function draw_ui()
-    -- 𝘣lack band at bottom
+    -- Black band at bottom
     rectfill(0, 119, 127, 127, 0)
     
-    -- 𝘩𝘦𝘢𝘭𝘵𝘩 𝘣𝘢𝘳 (top bar)
+    -- HEALTH BAR (top bar)
     local health_col = player_ship.hp > 30 and 11 or 8  -- green if healthy, red if low
     draw_segmented_bar(4, 120, player_ship.hp, 100, health_col, 5)
     
-    -- 𝘴peed bar (bottom bar)
+    -- Speed bar (bottom bar)
     local current_speed = player_ship:get_speed()
     draw_segmented_bar(4, 124, current_speed, player_ship.max_speed, 8, 5)
     
-    -- 𝘥raw score on the right side
+    -- Draw score on the right side
     local score_text = "score: " .. flr(display_score)
     print(score_text, 127 - #score_text * 4, 121, 10)  -- yellow color
 end
 
 
--- 𝘧𝘭𝘰𝘢𝘵𝘪𝘯𝘨 𝘵𝘦𝘹𝘵 𝘤𝘭𝘢𝘴𝘴
+-- FLOATING TEXT CLASS
 floating_text = {}
 floating_text.__index = floating_text
 
@@ -778,70 +693,35 @@ function floating_text:update()
 end
 
 function floating_text:draw()
-    -- 𝘥raw black background box
+    -- Draw black background box
     local text_width = #self.text * 4
     local text_height = 5
     rectfill(self.x - text_width/2 - 1, self.y - 1, 
                 self.x + text_width/2, self.y + text_height, 0)
 
-    -- 𝘥raw white text
+    -- Draw white text
     print(self.text, self.x - text_width/2, self.y, 7)
 end
 
--- 𝘱𝘢𝘯𝘦𝘭 𝘤𝘭𝘢𝘴𝘴
+-- PANEL CLASS
 panel = {}
 panel.__index = panel
 
-function panel.new(x, y, w, h, text, options)
-    options = options or {}
-    
-    -- 𝘴mart width: if w is nil/false, auto-calculate from text
-    if not w then
-        w = #text * 4 + (options.padding or 12)
-    end
-    
-    -- 𝘴mart height: if h is nil/false, use default
-    if not h then
-        h = options.tall and 12 or 10
-    end
-    
-    -- 𝘴mart colors: if col provided, use it for both border and selected
-    local col = options.col
-    
+function panel.new(x, y, w, h, text, col, life)
     return setmetatable({
         x = x,
         y = y,
-        w = w,
-        h = h,
+        w = w or (#text*4+12),
+        h = h or 10,
         text = text,
+        col = col or 5,
         selected = false,
         expand = 0,
-        bg_col = options.bg_col or 0,
-        border_col = options.border_col or col or 5,
-        text_col = options.text_col or 7,
-        selected_col = options.selected_col or col or 11,
-        border_style = options.border_style or "corners",
-        border_width = options.border_width or 1,
-        text_align = options.text_align or "center",
-        text_padding = options.text_padding or 3,
         target_x = x,
         target_y = y,
-        slide_speed = options.slide_speed or 0.2,
-        pulse = options.pulse or false,
-        pulse_amount = options.pulse_amount or (options.pulse and 1) or 2,
-        pulse_speed = options.pulse_speed or (options.pulse and 6) or 4,
-        shadow = options.shadow or false,
-        shadow_col = options.shadow_col or 1,
-        shadow_offset = options.shadow_offset or 1,
-        icon = options.icon,
-        icon_x = options.icon_x or 2,
-        icon_y = options.icon_y or 2,
-        life = options.life or -1,
+        life = life or -1,  -- -1 means infinite
+        anim_delay = 0,
     }, panel)
-end
-
-function panel:set_text(new_text)
-    self.text = new_text
 end
 
 function panel:set_position(x, y, instant)
@@ -857,104 +737,77 @@ function panel:set_position(x, y, instant)
 end
 
 function panel:update()
-    -- 𝘴mooth movement to target
+    -- handle animation delay
+    if self.anim_delay > 0 then
+        self.anim_delay -= 1
+        return true  -- don't move yet, just countdown
+    end
+    
+    -- smooth movement (fixed speed of 0.2)
     if self.x != self.target_x or self.y != self.target_y then
-        self.x += (self.target_x - self.x) * self.slide_speed
-        self.y += (self.target_y - self.y) * self.slide_speed
+        self.x += (self.target_x - self.x) * 0.2
+        self.y += (self.target_y - self.y) * 0.2
         
-        -- 𝘴nap when close enough
+        -- snap when close
         if abs(self.x - self.target_x) < 0.5 then self.x = self.target_x end
         if abs(self.y - self.target_y) < 0.5 then self.y = self.target_y end
     end
 
-    -- 𝘴mooth expand/contract when selected
+    -- expand/contract when selected
     if self.selected then
         self.expand = min(self.expand + 1, 3)
     else
         self.expand = max(self.expand - 1, 0)
     end
     
-    -- 𝘩andle life countdown
+    -- handle life countdown
     if self.life > 0 then
         self.life -= 1
-        return self.life > 0  -- return false when life reaches 0
+        return self.life > 0
     elseif self.life == 0 then
-        return false  -- panel should be removed
+        return false
     end
 
-    return true  -- panel still active (infinite life when life == -1)
+    return true
 end
 
+-- draw function remains the same
 function panel:draw()
-    -- 𝘤alculate actual position with expansion and pulse
+    -- calculate position with expand and pulse
     local dx = self.x - self.expand
     local dy = self.y
     local dw = self.w + self.expand * 2
     local dh = self.h
 
-    -- 𝘢pply pulse effect
-    if self.pulse then
-        local pulse_offset = sin(time() * self.pulse_speed) * self.pulse_amount
-        dx -= pulse_offset / 2
-        dy -= pulse_offset / 2
-        dw += pulse_offset
-        dh += pulse_offset
+    -- pulse when selected (fixed speed and amount)
+    if self.selected then
+        local pulse = sin(time() * 6) * 1
+        dx -= pulse / 2
+        dy -= pulse / 2
+        dw += pulse
+        dh += pulse
     end
 
-    -- 𝘥raw shadow if enabled
-    if self.shadow then
-        rectfill(dx + self.shadow_offset, dy + self.shadow_offset, 
-                dx + dw + self.shadow_offset, dy + dh + self.shadow_offset, 
-                self.shadow_col)
-    end
+    -- black background
+    rectfill(dx, dy, dx + dw, dy + dh, 0)
 
-    -- 𝘥raw background
-    rectfill(dx, dy, dx + dw, dy + dh, self.bg_col)
+    -- full border (always 1 pixel)
+    rect(dx - 1, dy - 1, dx + dw, dy + dh, self.col)
 
-    -- 𝘥raw border based on style
-    if self.border_style == "corners" then
-        -- 𝘰riginal corner style
-        rectfill(dx - 1, dy - 1, dx + 2, dy + dh + 1, self.border_col)
-        rectfill(dx + dw - 2, dy - 1, dx + dw + 1, dy + dh + 1, self.border_col)
-    elseif self.border_style == "full" then
-        -- 𝘧ull border
-        for i = 0, self.border_width - 1 do
-            rect(dx - i - 1, dy - i - 1, dx + dw + i, dy + dh + i, self.border_col)
-        end
-    end
-    -- "none" style skips border drawing
-
-    -- 𝘥raw icon if present
-    if self.icon then
-        self.icon(dx + self.icon_x, dy + self.icon_y)
-    end
-
-    -- 𝘤alculate text position based on alignment
-    local text_x = dx + self.text_padding
-    local text_y = dy + (dh - 5) / 2  -- center vertically (5 is text height)
-
-    if self.text_align == "center" then
-        text_x = dx + (dw - #self.text * 4) / 2
-    elseif self.text_align == "right" then
-        text_x = dx + dw - #self.text * 4 - self.text_padding
-    end
-
-    -- 𝘪f there's an icon, offset text
-    if self.icon then
-        text_x += 8  -- assuming icon is about 8 pixels wide
-    end
-
-    -- 𝘥raw text
-    local col = self.selected and self.selected_col or self.text_col
-    print(self.text, text_x, text_y, col)
+    -- centered text
+    local text_x = dx + (dw - #self.text * 4) / 2
+    local text_y = dy + (dh - 5) / 2
+    
+    -- use panel color when selected, white otherwise
+    print(self.text, text_x, text_y, self.selected and self.col or 7)
 end
 
--- 𝘱𝘢𝘳𝘵𝘪𝘤𝘭𝘦 𝘴𝘺𝘴𝘵𝘦𝘮
+-- PARTICLE SYSTEM
 particle = {}
 particle.__index = particle
 
-function particle.new(x, y, z, col)
-    return setmetatable({
+function particle.new(x, y, z, col, behavior)
+    local p = {
         x = x,
         y = y,
         z = z,
@@ -964,8 +817,25 @@ function particle.new(x, y, z, col)
         life = 20 + rnd(10),
         max_life = 30,
         col = col,
-        size = 1 + rnd(1)
-    }, particle)
+        size = 1 + rnd(1),
+        behavior = behavior or "smoke"  -- default is smoke
+    }
+    
+    -- Explosion setup - spread out fast then slow down
+    if behavior == "explosion" then
+        local angle = rnd()
+        local speed = 1 + rnd(2)  -- fast initial speed
+        p.vx = cos(angle) * speed
+        p.vy = sin(angle) * speed
+        p.vz = (rnd() - 0.5) * 2  -- some go up, some down
+        p.life = 20 + rnd(10)
+        p.max_life = 30
+        p.size = 1 + rnd(2)
+        -- cycle through explosion colors: white->yellow->orange->red
+        p.col = ({7, 10, 9, 8})[flr(rnd(4)) + 1]
+    end
+    
+    return setmetatable(p, particle)
 end
 
 function particle:update()
@@ -973,23 +843,30 @@ function particle:update()
     self.y += self.vy
     self.z += self.vz
 
-    -- particles just go up, no gravity
-    -- slight deceleration
-    self.vz *= 0.95
-
-    -- apply drag
-    self.vx *= 0.9
-    self.vy *= 0.9
+    if self.behavior == "explosion" then
+        -- explosion particles slow down quickly
+        self.vx *= 0.85
+        self.vy *= 0.85
+        self.vz *= 0.9
+        -- and fall after initial burst
+        self.vz -= 0.1
+    else
+        -- smoke behavior (your existing code)
+        -- particles just go up, no gravity
+        -- slight deceleration
+        self.vz *= 0.95
+        -- apply drag
+        self.vx *= 0.9
+        self.vy *= 0.9
+    end
 
     self.life -= 1
-
     return self.life > 0
 end
 
 function particle:draw(cam_x, cam_y)
     -- convert to screen coordinates
-    local sx = cam_x + (self.x - self.y) * half_tile_width
-    local sy = cam_y + (self.x + self.y) * half_tile_height + self.z
+    local sx,sy = iso(self.x,self.y) sy+=self.z
 
     -- fade out based on life
     local alpha = self.life / self.max_life
@@ -1019,7 +896,13 @@ function particle_sys:spawn(x, y, z, col, num)
     for i=1,n do
         local px = x + (rnd() - 0.5) * 0.1
         local py = y + (rnd() - 0.5) * 0.1
-        add(self.particles, particle.new(px, py, z, col))
+        add(self.particles, particle.new(px, py, z, col, "smoke"))
+    end
+end
+
+function particle_sys:explode(x, y, z, size)
+    for i=1,size do
+        add(self.particles, particle.new(x, y, z, nil, "explosion"))
     end
 end
 
@@ -1044,7 +927,7 @@ end
 
 
 
--- 𝘨𝘢𝘮𝘦 𝘮𝘢𝘯𝘢𝘨𝘦𝘳
+-- GAME MANAGER
 game_manager = {}
 game_manager.__index = game_manager
 
@@ -1054,8 +937,8 @@ function game_manager.new()
         current_event = nil,
         idle_start_time = time(),
         idle_duration = 3,
-        -- event_types = {"circles", "combat"},
-        event_types = {"combat"},
+        event_types = {"circles", "combat"},
+        -- event_types = {"combat"},
         active_panels = {},
 
         -- difficulty progression (flat vars)
@@ -1125,12 +1008,14 @@ function game_manager:end_event(success)
     self.state = "idle"
     self.idle_start_time = time()
     
-    local message = success and "𝘦𝘷𝘦𝘯𝘵 𝘤𝘰𝘮𝘱𝘭𝘦𝘵𝘦!" or "𝘦𝘷𝘦𝘯𝘵 𝘧𝘢𝘪𝘭𝘦𝘥!"
+    local message = success and "EVENT COMPLETE!" or "EVENT FAILED!"
     local col = success and 11 or 8
     
-    local cp = panel.new(64 - 40, 115, nil, nil, message, 
-        {col=col, border_style="full", shadow=true, pulse=success, life=90})
+    local cp = panel.new(64 - 40, 115, nil, nil, message, col, 90)  -- 90 = life
     cp:set_position(64 - 40, 105, false)
+    if success then
+        cp.selected = true  -- this will trigger the pulse effect
+    end
     self:add_panel(cp)
     
     -- increase difficulty only if success
@@ -1146,7 +1031,7 @@ function game_manager:remove_panel(panel_to_remove)
     del(self.active_panels, panel_to_remove)
 end
 
--- 𝘤𝘪𝘳𝘤𝘭𝘦 𝘳𝘢𝘤𝘦 𝘦𝘷𝘦𝘯𝘵
+-- CIRCLE RACE EVENT
 circle_event = {}
 circle_event.__index = circle_event
 
@@ -1187,12 +1072,11 @@ function circle_event.new(opt)
     -- one-time payout if completed (no per-ring score during play)
     self.total_points_award = #self.circles * self.per_ring_points + self.completion_bonus
 
-    -- 𝘶𝘪
-    self.instruction_panel = panel.new(64 - 50, 4, nil, nil,
-        "reach all "..#self.circles.." circles!", {col=8, border_style="full", shadow=true, padding=12})
+    -- UI
+    self.instruction_panel = panel.new(64 - 50, 4, nil, nil,"reach all "..#self.circles.." circles!", 8)
     game_manager:add_panel(self.instruction_panel)
 
-    self.timer_panel = panel.new(48, 16, 40, nil, "0.00s", {col=5, border_style="full", shadow=true})
+    self.timer_panel = panel.new(48, 16, 40, nil, "0.00s", 5)
     game_manager:add_panel(self.timer_panel)
 
     return self
@@ -1212,26 +1096,9 @@ function circle_event:update()
         return
     end
 
-    -- update timer 𝘶𝘪 with 2 decimal places
+    -- update timer UI with 2 decimal places
     if self.timer_panel then
-        self.timer_panel:set_text(fmt2(max(0, time_left)).."𝘴")
-        
-        -- color / pulse changes
-        if time_left < 3 then
-            self.timer_panel.text_col = 8  -- red
-            self.timer_panel.border_col = 8
-            self.timer_panel.pulse = true
-            self.timer_panel.pulse_speed = 10
-            self.timer_panel.pulse_amount = 1
-        elseif time_left < 5 then
-            self.timer_panel.text_col = 9  -- orange
-            self.timer_panel.border_col = 9
-            self.timer_panel.pulse = false
-        else
-            self.timer_panel.text_col = 7
-            self.timer_panel.border_col = 5
-            self.timer_panel.pulse = false
-        end
+        self.timer_panel.text = fmt2(max(0, time_left)).."S"
     end
 
     -- check current ring
@@ -1265,8 +1132,7 @@ function circle_event:update()
             else
                 if self.instruction_panel then
                     local remaining = #self.circles - self.current_target + 1
-                    self.instruction_panel:set_text(remaining.." circle"..(remaining>1 and "s" or "").." left")
-                    self.instruction_panel.text_col = 8
+                    self.instruction_panel.text = remaining.." circle"..(remaining>1 and "s" or "").." left"
                 end
             end
         end
@@ -1277,8 +1143,7 @@ end
 function circle_event:draw()
     for i, circle in ipairs(self.circles) do
         if not circle.collected then
-            local sx = cam_offset_x + (circle.x - circle.y) * half_tile_width
-            local sy = cam_offset_y + (circle.x + circle.y) * half_tile_height
+            local sx,sy = iso(circle.x,circle.y)
             local _,_,_,terrain_h = terrain(flr(circle.x), flr(circle.y))
             local base_y = sy - terrain_h * block_h
             local col = (i == self.current_target) and 8 or 2
@@ -1321,7 +1186,7 @@ function circle_event:draw_direction_arrow(target)
     draw_arrow_to(target.x, target.y, player_ship.x, player_ship.y, 8, 1.5)
 end
 
--- 𝘴𝘩𝘪𝘱 𝘤𝘭𝘢𝘴𝘴
+-- SHIP CLASS
 ship = {}
 ship.__index = ship
 
@@ -1401,7 +1266,8 @@ function ship:ai_update()
     if mode and dist < 10 then
         self.fire_timer -= 1
         if self.fire_timer <= 0 then
-            self:fire_at(player_ship)
+            self.target = player_ship  -- set target before firing
+            self:fire_at()  -- no parameter
             self.fire_timer = 10
         end
     end
@@ -1410,51 +1276,60 @@ end
 
 
 function ship:update_cursor()
-    self.target = nil
     self.focus -= min(2, self.focus)
     
     -- find nearest enemy in front
     local best_dist = 15  -- max targeting range
+    local found_enemy = nil
     for e in all(enemies) do
-        local dx = e.x - self.x
-        local dy = e.y - self.y
-        local dist = sqrt(dx*dx + dy*dy)
+        local dx, dy = e.x - self.x, e.y - self.y
+        local dist = dist_trig(dx, dy)
         
         if dist < best_dist then
             -- check if roughly in front (simplified dot product)
             local fx = cos(self.angle)
             local fy = sin(self.angle)
-            local dot = (dx*fx + dy*fy) / dist
+            local dot = (dx*fx + dy*fy) / max(0.0001, dist)
             
             if dot > 0.5 then  -- in front cone
                 best_dist = dist
-                self.target = e
+                found_enemy = e
             end
         end
     end
     
-    if self.target then
+    if found_enemy then
+        self.target = found_enemy
         self.focus = min(100, self.focus + 5)
+    else
+        -- No enemy - target a point in front
+        local world_angle = atan2(self.vx, self.vy)
+        self.target = {
+            x = self.x + cos(world_angle) * 10,
+            y = self.y + sin(world_angle) * 10
+        }
     end
 end
 
-function ship:fire_at(target)
-    if not target then return end
+-- Simplified: always shoot at self.target
+function ship:fire_at()
+    if not self.target then return end  -- safety check
     
-    local dx, dy = target.x - self.x, target.y - self.y
+    local dx, dy = self.target.x - self.x, self.target.y - self.y
     local dist = dist_trig(dx, dy)
     
     if dist < 15 then
-        -- create projectile
+        -- create projectile with ship velocity + projectile velocity
         add(projectiles, {
             x = self.x,
             y = self.y,
             z = self.current_altitude,
-            vx = dx/dist,
-            vy = dy/dist,
-            life=30,
+            vx = self.vx + dx/dist * 0.5,  -- ship velocity + projectile velocity
+            vy = self.vy + dy/dist * 0.5,
+            life = 30,
             owner = self,
         })
+        sfx(63)
     end
 end
 
@@ -1491,10 +1366,15 @@ function ship:update()
         self.vx += input_x * 0.707
         self.vy += input_y * 0.707
         
-        -- 𝘱layer shooting with cursor
+        -- Player shooting with cursor
         self:update_cursor()
         if btn(❎) then
-            self:fire_at(self.target)
+            -- Add a simple fire rate limiter
+            if not self.last_shot_time then self.last_shot_time = 0 end
+            if time() - self.last_shot_time > 0.1 then  -- shoot every 0.1 seconds max
+                self:fire_at()  -- no parameter needed now!
+                self.last_shot_time = time()
+            end
         end
     end
 
@@ -1513,7 +1393,7 @@ function ship:update()
     self.x += self.vx
     self.y += self.vy
 
-    -- 𝘰𝘯𝘭𝘺 update tile manager for player ship!
+    -- ONLY update tile manager for player ship!
     if not self.is_enemy then
         tile_manager:update_player_position(self.x, self.y)
     end
@@ -1522,7 +1402,7 @@ function ship:update()
     local new_terrain = self:get_terrain_height_at(self.x, self.y)
     local height_diff = new_terrain - current_terrain
 
-    -- 𝘤heck if we hit a wall that's too steep
+    -- Check if we hit a wall that's too steep
     if height_diff > self.max_climb then
         local can_move_x = false
         local can_move_y = false
@@ -1553,44 +1433,44 @@ function ship:update()
         height_diff = new_terrain - current_terrain
     end
 
-    -- 𝘳𝘢𝘮𝘱 𝘱𝘩𝘺𝘴𝘪𝘤𝘴: 𝘰nly apply when we're hovering/following terrain
+    -- RAMP PHYSICS: Only apply when we're hovering/following terrain
     if self.is_hovering and height_diff > 0 and speed > 0.01 then
-        -- 𝘨oing up a ramp while hovering - convert to vertical velocity and launch!
+        -- Going up a ramp while hovering - convert to vertical velocity and launch!
         self.vz = height_diff * self.ramp_boost * speed * 10
         self.is_hovering = false
     end
 
-    -- 𝘶pdate altitude with physics
+    -- Update altitude with physics
     local target_altitude = new_terrain + self.hover_height
 
-    -- 𝘤heck if we're currently hovering (at target altitude)
+    -- Check if we're currently hovering (at target altitude)
     if self.is_hovering then
-        -- 𝘧ollow terrain while hovering
+        -- Follow terrain while hovering
         self.current_altitude = target_altitude
-        -- 𝘬eep vertical velocity at 0 while hovering
+        -- Keep vertical velocity at 0 while hovering
         self.vz = 0
     else
-        -- 𝘸e're airborne - apply physics
+        -- We're airborne - apply physics
         
-        -- 𝘢pply vertical velocity
+        -- Apply vertical velocity
         self.current_altitude += self.vz
         
-        -- 𝘢pply gravity
+        -- Apply gravity
         self.vz -= self.gravity
         
-        -- 𝘤heck if we've reached ground level
+        -- Check if we've reached ground level
         if self.current_altitude <= target_altitude then
-            -- 𝘭anding - return to hovering (no bounce)
+            -- Landing - return to hovering (no bounce)
             self.current_altitude = target_altitude
             self.vz = 0
             self.is_hovering = true
         end
         
-        -- 𝘢pply air dampening
+        -- Apply air dampening
         self.vz *= 0.98
     end
 
-    -- 𝘴pawn particles when hovering 𝘢𝘯𝘥 moving
+    -- Spawn particles when hovering AND moving
     if self.is_hovering and speed > 0.01 then
         self.particle_timer += 1
         local spawn_rate = max(1, 5 - flr(speed * 10))
@@ -1611,14 +1491,13 @@ function ship:update()
 end
 
 function ship:get_screen_pos()
-    local sx = cam_offset_x + (self.x - self.y) * half_tile_width
-    local sy = cam_offset_y + (self.x + self.y) * half_tile_height
+    local sx,sy=iso(self.x,self.y)
     sy -= self.current_altitude * block_h
     return sx, sy
 end
 
 function ship:get_camera_target()
-    local sx, sy = (self.x - self.y) * half_tile_width, (self.x + self.y) * half_tile_height
+    local sx,sy = (self.x - self.y) * half_tile_width, (self.x + self.y) * half_tile_height  -- keep no cam_offset here
     sy -= self.current_altitude * block_h
     return 64 - sx, 64 - sy
 end
@@ -1672,23 +1551,31 @@ function ship:draw()
     -- cursor/health in one conditional
     if self.is_enemy then
         if self.hp < 100 then
+            -- draw grey background for full bar
+            rectfill(sx - 5, sy - 10, sx + 5, sy - 9, 5)  -- grey background
+            -- draw red health on top
             local w = self.hp / 100 * 10
-            rectfill(sx - 5, sy - 10, sx - 5 + w, sy - 9, 8)
+            rectfill(sx - 5, sy - 10, sx - 5 + w, sy - 9, 8)  -- red health
         end
     elseif self.target then
-        local tsx, tsy = self.target:get_screen_pos()
-        local f = self.focus / 100
-        local size = 8 - f * 3
-        local col = f >= 1 and (flr(time()*10)%2==0 and 10 or 7) or 8
-        line(tsx - size, tsy, tsx - size/2, tsy, col)
-        line(tsx + size/2, tsy, tsx + size, tsy, col)
-        line(tsx, tsy - size/2, tsx, tsy - size/4, col)
-        line(tsx, tsy + size/4, tsx, tsy + size/2, col)
+        -- Check if target is an enemy ship (has get_screen_pos method)
+        local tsx, tsy
+        if self.target.get_screen_pos then
+            tsx, tsy = self.target:get_screen_pos()
+            local f = self.focus / 100
+            local size = 8 - f * 3
+            local col = f >= 1 and (flr(time()*10)%2==0 and 10 or 7) or 8
+            line(tsx - size, tsy, tsx - size/2, tsy, col)
+            line(tsx + size/2, tsy, tsx + size, tsy, col)
+            line(tsx, tsy - size/2, tsx, tsy - size/4, col)
+            line(tsx, tsy + size/4, tsx, tsy + size/2, col)
+        end
+        -- If it's just a virtual target point, we don't draw cursor
     end
 end
 
 function ship:get_speed()
-    return dist_trig(self.vx, self.vy )
+    return dist_trig(self.vx, self.vy)
 end
 
 function ship:spawn_particles(num, col_override)
@@ -1717,12 +1604,21 @@ function update_projectiles()
                 -- apply damage
                 t.hp -= 5
                 p.life = 0
-                -- spawn impact particles at collision point (use t.altitude for z)
-                particle_sys:spawn(p.x, p.y,
-                    t.current_altitude and -t.current_altitude * block_h or 0,
-                    9, 5)
+                
+                -- SMALL EXPLOSION when projectile hits
+                particle_sys:explode(p.x, p.y, 
+                    -t.current_altitude * block_h, 
+                    10)  -- 10 particles for hit
+                
                 -- death check
                 if t.hp <= 0 then
+                    sfx(62)  -- play death sound
+                    
+                    -- BIG EXPLOSION when ship dies
+                    particle_sys:explode(t.x, t.y, 
+                        -t.current_altitude * block_h, 
+                        20)  -- 20 particles for death
+                    
                     if t.is_enemy then
                         del(enemies, t)
                         player_score += 200
@@ -1740,21 +1636,27 @@ end
 
 function draw_projectiles()
     for p in all(projectiles) do
-        local sx = cam_offset_x + (p.x - p.y) * half_tile_width
-        local sy = cam_offset_y + (p.x + p.y) * half_tile_height - p.z * block_h
+        local sx,sy = iso(p.x,p.y) sy-=p.z*block_h
         circfill(sx, sy, 1, p.owner.is_enemy and 8 or 12)  -- red for enemies, blue for player
     end
 end
 
--- 𝘤𝘰𝘮𝘣𝘢𝘵 𝘦𝘷𝘦𝘯𝘵
+-- COMBAT EVENT
 combat_event = {}
 combat_event.__index = combat_event
 
 function combat_event.new()
     local self = setmetatable({
         completed = false,
-        success = false
+        success = false,
+        instruction_panel = nil,
+        start_count = 0,
+        switched = false
     }, combat_event)
+
+    -- intro banner
+    self.instruction_panel = panel.new(64 - 50, 4, nil, nil, "enemy wave incoming!", 8)
+    game_manager:add_panel(self.instruction_panel)
 
     enemies = {}
     for i=1,3 do
@@ -1765,6 +1667,8 @@ function combat_event.new()
         e.hp = 50
         add(enemies, e)
     end
+
+    self.start_count = #enemies
     return self
 end
 
@@ -1774,41 +1678,65 @@ function combat_event:update()
         e:update()
     end
 
-    -- end strictly by deaths
-    if #enemies == 0 then
+    local remaining = #enemies
+
+    -- wave cleared → finish (no "0 enemies left" flash)
+    if remaining == 0 then
         self.completed, self.success = true, true
         player_score += 1000
+        if self.instruction_panel then
+            game_manager:remove_panel(self.instruction_panel)
+            self.instruction_panel = nil
+        end
         return
     end
+
+    -- switch text only after first kill, then keep it updated
+    if self.instruction_panel then
+        if (not self.switched) and remaining < self.start_count then
+            self.switched = true
+        end
+        if self.switched then
+            self.instruction_panel.text =
+                (remaining == 1) and "1 enemy left" or (remaining.." enemies left")
+        end
+    end
+
+    -- player death → game over
     if player_ship.hp <= 0 then
         self.completed, self.success = true, false
+        player_ship.dead = true
+        game_manager.active_panels = {}
+        local gop = panel.new(44, 50, nil, nil, "game over", 8)
+        game_manager:add_panel(gop)
+        local cp = panel.new(64 - 40, 105, nil, nil, "press ❎ to restart", 8, 90)
+        game_manager:add_panel(cp)
+        if self.instruction_panel then
+            game_manager:remove_panel(self.instruction_panel)
+            self.instruction_panel = nil
+        end
         return
     end
 end
 
 function combat_event:draw()
-    -- draw enemies
     for e in all(enemies) do
         e:draw()
-        -- draw arrow pointing to each enemy
         draw_arrow_to(e.x, e.y, player_ship.x, player_ship.y, 8, 1.5)
     end
 end
 
+
+
 function draw_arrow_to(target_x, target_y, source_x, source_y, col, orbit_dist)
     local dx, dy = target_x - source_x, target_y - source_y
-    local dist = dist_trig(dx, dy)
-    
-    if dist < 2 then return end
-    
-    dx, dy = dx / dist, dy / dist
+    if dist_trig(dx, dy) < 2 then return end
     local angle = atan2(dx, dy)
     
     local arrow_x = source_x + cos(angle) * orbit_dist
     local arrow_y = source_y + sin(angle) * orbit_dist
     
-    local sx = cam_offset_x + (arrow_x - arrow_y) * half_tile_width
-    local sy = cam_offset_y + (arrow_x + arrow_y) * half_tile_height
+    local sx,sy = iso(arrow_x,arrow_y)
     sy -= player_ship.current_altitude * block_h
     
     local screen_dx, screen_dy = (dx - dy) * half_tile_width, (dx + dy) * half_tile_height
@@ -1827,7 +1755,7 @@ function draw_arrow_to(target_x, target_y, source_x, source_y, col, orbit_dist)
     draw_triangle(tip_x, tip_y, back1_x, back1_y, back2_x, back2_y, col)
 end
 
--- 𝘵𝘪𝘭𝘦 𝘤𝘭𝘢𝘴𝘴
+-- TILE CLASS
 tile = {}
 tile.__index = tile
 
@@ -1874,7 +1802,7 @@ end
 function tile:draw()
     local sx, sy=cam_offset_x+self.base_sx, cam_offset_y+self.base_sy
 
-    -- 𝘸𝘢𝘵𝘦𝘳: top diamond + 1-line ripple
+    -- WATER: top diamond + 1-line ripple
     if self.height<=0 then
         local c=(self.height<=-2) and 1 or 12
         diamond(sx,sy,c)
@@ -1883,7 +1811,7 @@ function tile:draw()
         return
     end
 
-    -- 𝘭𝘢𝘯𝘥: 𝘷4 (anchored 2 loops), then top + outlines
+    -- LAND: V4 (anchored 2 loops), then top + outlines
     local hp=self.hp
     local sy2=sy-hp
     local by=cam_offset_y+self.by-hp
@@ -1903,7 +1831,7 @@ end
 
 
 
--- 𝘵𝘪𝘭𝘦 𝘮𝘢𝘯𝘢𝘨𝘦𝘳
+-- TILE MANAGER
 tile_manager = {
     tiles = {},
     tile_list = {},
@@ -1923,19 +1851,16 @@ function tile_manager:init()
     self.view_range_cached = view_range
 end
 
-local function insert_sorted(list, t)
-    local k = t.x + t.y
-    local i = #list
-    while i > 0 and (list[i].x + list[i].y) > k do i -= 1 end
-    add(list, t, i + 1) -- indexed insert
-end
-
-function tile_manager:add_tile(x, y)
-    if not self.tiles[x] then self.tiles[x] = {} end
+function tile_manager:add_tile(x,y)
+    if not self.tiles[x] then self.tiles[x]={} end
     if not self.tiles[x][y] then
-        local t = tile.new(x, y)
-        self.tiles[x][y] = t
-        insert_sorted(self.tile_list, t)
+        local t=tile.new(x,y)
+        self.tiles[x][y]=t
+        -- Insert sorted
+        local k=t.x+t.y
+        local i=#self.tile_list
+        while i>0 and (self.tile_list[i].x+self.tile_list[i].y)>k do i-=1 end
+        add(self.tile_list,t,i+1)
     end
 end
 
@@ -1945,15 +1870,8 @@ function tile_manager:remove_tile(x, y)
         del(self.tile_list, t)
         self.tiles[x][y] = nil
         
-        -- 𝘤lean up empty columns
-        local has_tiles = false
-        for k,v in pairs(self.tiles[x]) do
-            has_tiles = true
-            break
-        end
-        if not has_tiles then
-            self.tiles[x] = nil
-        end
+        -- Clean up empty columns
+        if not next(self.tiles[x]) then self.tiles[x]=nil end
     end
 end
 
@@ -1963,17 +1881,17 @@ function tile_manager:update_player_position(px, py)
     if nx == ox and ny == oy then return end
     self.dx_pending, self.dy_pending = nx - ox, ny - oy
     self.player_x, self.player_y = nx, ny
-    self:update_tiles() -- unchanged signature
+    self:update_tiles()
 end
 
 function tile_manager:update_tiles()
     local nminx, nminy = self.player_x - view_range, self.player_y - view_range
     local nmaxx, nmaxy = self.player_x + view_range, self.player_y + view_range
-    -- local first_fill = #self.tile_list == 0
+    local first_fill = #self.tile_list == 0  -- UNCOMMENT THIS LINE
     local range_changed = self.view_range_cached ~= view_range
 
-    -- 𝘧irst fill or view range changed: do a full (rare) rebuild
-    if  range_changed then
+    -- first fill or view range changed: do a full (rare) rebuild
+    if first_fill or range_changed then
         for x=nminx,nmaxx do
             for y=nminy,nmaxy do 
                 self:add_tile(x,y) 
@@ -2013,14 +1931,14 @@ end
 
 function tile_manager:cleanup_cache()
     if time() - last_cache_cleanup > 1 then
-        -- cover tiles 𝘢𝘯𝘥 minimap
+        -- cover tiles AND minimap
         local tile_r = view_range * 2
         local mini_r = 36  -- wr(32) + margin
-        local 𝘳 = max(tile_r, mini_r)
+        local R = max(tile_r, mini_r)
 
 
-        local x1, y1 = self.player_x - 𝘳, self.player_y - 𝘳
-        local x2, y2 = self.player_x + 𝘳, self.player_y + 𝘳
+        local x1, y1 = self.player_x - R, self.player_y - R
+        local x2, y2 = self.player_x + R, self.player_y + R
 
         local new_cache = {}
         for k,c in pairs(cell_cache) do
@@ -2039,7 +1957,7 @@ end
 
 
 
--- 𝘵𝘦𝘳𝘳𝘢𝘪𝘯 𝘨𝘦𝘯𝘦𝘳𝘢𝘵𝘪𝘰𝘯
+-- TERRAIN GENERATION
 function perlin2d(x,y,p)
     local fx,fy=flr(x),flr(y)
     local xi,yi=fx&127,fy&127
@@ -2062,7 +1980,7 @@ end
 function generate_permutation(seed)
     srand(seed)
     local perm = {}
-    -- 𝘶se only 128 values for faster wrapping
+    -- Use only 128 values for faster wrapping
     for i = 0, 127 do
         perm[i] = flr(rnd(128))
     end
@@ -2077,22 +1995,70 @@ end
 
 
 __gfx__
-0000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-c0000000c0ccccccccc0ccccccccc0c0ccccccccc0ccccccccc0cc000000c000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-c0000000c0c0000000c0c0000000c0c000000cc000c0000000c0c0cc0000c000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-ccccccccc0c0000000c0ccccccccc0c00000c00000c0000000c0c000c000c000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-c0000000c0c0000000c0c0000cc000c000cc000000c0000000c0c0000cc0c000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-c0000000c0ccccccccc0c000000cc0c0ccccccccc0ccccccccc0c000000cc000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-0000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-0000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-0000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-ccccccccc0c000000000c0cccccccc00ccccccccc00000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-c000000000c000000000c0c0000000c0c0000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-c00cccccc0c000000000c0c0000000c0cccccccc000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-c0000000c0c000000000c0c0000000c0c0000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-ccccccccc0ccccccccc0c0cccccccc00ccccccccc00000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-0000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
-0000000000000000000000000000000000000000000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00000000000000000000000000000000
+000eeeee000000000000000000000000000000000000000000000000eeee000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0c0eeeee0c0ccccccccc0ccccccccc0c0ccccccccc0ccccccccc0cc00eee0c0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0c0000000c0c0000000c0c0000000c0c000000cc000c0000000c0c0cc0ee0c0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0ccccccccc0c0eeeee0c0ccccccccc0c0e000c00ee0c0eeeee0c0c000c000c0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0c0000000c0c0000000c0c0000cc000c000cc000000c0000000c0c0ee0cc0c0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0c0eeeee0c0ccccccccc0c0ee000cc0c0ccccccccc0ccccccccc0c0eee00cc0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+000eeeee000000000000000eeee0000000000000000000000000000eeeee000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0000000000000eeeeeee000000000000e0000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0ccccccccc0c0eeeeeee0c0cccccccc00ccccccccc0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0c000000000c0eeeeeee0c0c0000000c0c000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0c00cccccc0c0eeeeeee0c0c0eeeee0c0cccccccc0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0c0000000c0c000000000c0c0000000c0c000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+0ccccccccc0ccccccccc0c0cccccccc00ccccccccc0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+00000000000000000000000000000000e0000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 __map__
 000000000000000000000000000e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -2135,6 +2101,37 @@ __sfx__
 030b000020335203351d3351d3351f3351f33520335203351d3351d3351f3351f33524335243352233522335203052030520335203351f3051f3051f3351f3351f3051f3051f3351f33520335203351f3351f335
 030b00001d3451d34511345113451d3451d34511345113451d3451d34529345293451d3451d34511345113451d3451d34529345293451d3451d34529345293451d3451d34511345113451d3451d3453534535345
 030b00001d3451d3451d3451d3451d3451d3451d3451d34522345223451f3051f3451f3451b3051b3451b3451d3451d3451d3451d3451d3451d3451d3451d3451d3451d3451d3451d3451d3451d3451d3451d345
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000500003b650356502f6502965025650206501c6501765013650116500f6500d6500c6500a650096500965008650076500765006650056600465004650036400264002640016300063000630006200061000600
+150100003f66033660256601d660146600e6600b660086600766006660056600566005660046600466003660036600566008660096603d6000060000600006000060000600006000060000600006000060000600
 __music__
 01 02064344
 00 03060844
