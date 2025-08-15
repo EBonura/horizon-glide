@@ -743,7 +743,7 @@ function floating_text:draw()
                 self.x + text_width/2, self.y + text_height, 0)
 
     -- Draw white text
-    print(self.text, self.x - text_width/2, self.y, 7)
+    print(self.text, self.x - text_width/2, self.y, self.col)
 end
 
 -- PANEL CLASS
@@ -979,9 +979,9 @@ function game_manager.new()
         state = "idle",
         current_event = nil,
         idle_start_time = time(),
-        idle_duration = 3,
-        -- event_types = {"circles", "combat"},
-        event_types = {"combat"},
+        idle_duration = 5,
+        event_types = {"combat", "circles"},
+        -- event_types = {"combat"},
 
         active_panels = {},
         next_event_index = 1,
@@ -1163,22 +1163,26 @@ function circle_event:update()
             circle.collected = true
             sfx(61)
 
+            -- restore health
+            local health_gain = 10  -- or whatever amount you want
+            player_ship.hp = min(player_ship.hp + health_gain, player_ship.max_hp)
+
             -- only give extra time if this isn't the last ring
             local sx, sy = player_ship:get_screen_pos()
             if self.current_target < #self.circles then
                 self.end_time += self.recharge_seconds
-                add(floating_texts, floating_text.new(sx, sy - 10, "+"..fmt2(self.recharge_seconds).."s", 7))
+                add(floating_texts, floating_text.new(sx, sy - 10, "+"..fmt2(self.recharge_seconds).."s"))
+                add(floating_texts, floating_text.new(sx, sy - 20, "+10hp", 11))
             end
 
             self.current_target += 1
 
             if self.current_target > #self.circles then
                 -- success: single payout once
-                self.completed = true
-                self.success = true
+                self.completed, self.success = true, true
 
-                if self.timer_panel then game_manager:remove_panel(self.timer_panel) self.timer_panel = nil end
-                if self.instruction_panel then game_manager:remove_panel(self.instruction_panel) self.instruction_panel = nil end
+                game_manager:remove_panel(self.timer_panel) self.timer_panel = nil
+                game_manager:remove_panel(self.instruction_panel) self.instruction_panel = nil
 
                 player_score += self.total_points_award
                 add(floating_texts, floating_text.new(sx, sy - 20, "+"..self.total_points_award, 7))
@@ -1270,7 +1274,6 @@ function ship.new(start_x, start_y, is_enemy)
         max_hp = is_enemy and 50 or 100,  -- <-- ADD THIS
         hp = is_enemy and 50 or 100,      -- <-- UPDATE THIS
         target = nil,
-        fire_timer = 0,
         focus = 0,
         ai_phase = is_enemy and rnd(4) or 0,
     }, ship)
@@ -1331,10 +1334,10 @@ function ship:ai_update()
     
     -- fire when chasing and have a valid target (not when fleeing)
     if mode and has_target then
-        self.fire_timer -= 1
-        if self.fire_timer <= 0 then
+        if not self.last_shot_time then self.last_shot_time = 0 end
+        if time() - self.last_shot_time > 0.15 then
             self:fire_at()
-            self.fire_timer = 10
+            self.last_shot_time = time()
         end
     end
 end
