@@ -137,6 +137,8 @@ function _init()
     last_cache_cleanup = 0
     terrain_perm = nil
     current_seed = 1337
+
+    ws = {} -- water splashes
     
     -- menu configuration (unchanged)
     menu_options = {
@@ -611,11 +613,43 @@ function init_game()
     last_cache_cleanup = time()
 end
 
+function draw_ws()
+    local nxt={}
+    for s in all(ws) do
+        s.r+=0.18 s.life-=1
+        local last=nil
+        for a=0,1,0.06 do
+            local wx=s.x+cos(a)*s.r
+            local wy=s.y+sin(a)*s.r
+            local _,_,_,h=terrain(flr(wx),flr(wy))
+            if h<=0 then
+                local px,py=iso(wx,wy)
+                -- connect short segments so it reads as a circle, not particles
+                if last then line(last[1],last[2],px,py,(h<=-2) and 12 or 7) end
+                last={px,py}
+            else
+                last=nil -- break at land edges
+            end
+        end
+        if s.life>0 then add(nxt,s) end
+    end
+    ws=nxt
+end
+
+
 function draw_world()
-    for tile in all(tile_manager.tile_list) do tile:draw() end
-    particle_sys:draw(cam_offset_x, cam_offset_y)
+    -- water first
+    for t in all(tile_manager.tile_list) do if t.height<=0 then t:draw() end end
+    -- rings on top of water
+    draw_ws()
+    -- land on top (hides any ring bits near shore)
+    for t in all(tile_manager.tile_list) do if t.height>0 then t:draw() end end
+
+    particle_sys:draw(cam_offset_x,cam_offset_y)
     if not player_ship.dead then player_ship:draw() end
 end
+
+
 
 function draw_game()
     cls(1)
@@ -1011,11 +1045,10 @@ function game_manager:end_event(success)
     local message = success and "EVENT COMPLETE!" or "EVENT FAILED!"
     local col = success and 11 or 8
     
-    local cp = panel.new(64 - 40, 115, nil, nil, message, col, 90)  -- 90 = life
+    local cp = panel.new(40, 90, nil, nil, message, col, 90)
     cp:set_position(64 - 40, 105, false)
-    if success then
-        cp.selected = true  -- this will trigger the pulse effect
-    end
+    cp.selected = success
+
     self:add_panel(cp)
     
     -- increase difficulty only if success
@@ -1073,7 +1106,7 @@ function circle_event.new(opt)
     self.total_points_award = #self.circles * self.per_ring_points + self.completion_bonus
 
     -- UI
-    self.instruction_panel = panel.new(64 - 50, 4, nil, nil,"reach all "..#self.circles.." circles!", 8)
+    self.instruction_panel = panel.new(20, 4, nil, nil,"reach all "..#self.circles.." circles!", 8)
     game_manager:add_panel(self.instruction_panel)
 
     self.timer_panel = panel.new(48, 16, 40, nil, "0.00s", 5)
@@ -1308,6 +1341,15 @@ function ship:update_cursor()
             x = self.x + cos(world_angle) * 10,
             y = self.y + sin(world_angle) * 10
         }
+    end
+
+    -- expanding water rings only when moving fast enough
+    if self.is_hovering  and self:get_speed() > 0.2 and self:get_terrain_height_at(self.x,self.y) <= 0 then
+        self.st = (self.st or 0) + 1
+        if self.st > 3 then
+            add(ws, {x=self.x, y=self.y, r=0, life=28})
+            self.st = 0
+        end
     end
 end
 
@@ -1709,7 +1751,7 @@ function combat_event:update()
         game_manager.active_panels = {}
         local gop = panel.new(44, 50, nil, nil, "game over", 8)
         game_manager:add_panel(gop)
-        local cp = panel.new(64 - 40, 105, nil, nil, "press ❎ to restart", 8, 90)
+        local cp = panel.new(24, 80, nil, nil, "press ❎ to restart", 8, 90)
         game_manager:add_panel(cp)
         if self.instruction_panel then
             game_manager:remove_panel(self.instruction_panel)
@@ -1792,7 +1834,7 @@ function diamond(sx, sy, c)
     for r = 0, half_tile_height do
         line(sx - dx, sy - r, sx + dx, sy - r, c)
         if r > 0 then
-        line(sx - dx, sy + r, sx + dx, sy + r, c)
+            line(sx - dx, sy + r, sx + dx, sy + r, c)
         end
         dx -= 2
     end
