@@ -107,8 +107,6 @@ function _init()
     player_ship.is_hovering = true
     
     -- core game variables
-    player_score = 0
-    display_score = 0
     floating_texts = {}
 
     -- initialize particle system; reset its list and sync alias
@@ -237,10 +235,10 @@ function _update()
         end
 
         -- score tween
-        if display_score<player_score then
-            local diff=player_score-display_score
-            local step=flr((diff+9)/10)
-            display_score+= (diff<10) and diff or step
+        if game_manager.display_score < game_manager.player_score then
+            local diff = game_manager.player_score - game_manager.display_score
+            local step = flr((diff+9)/10)
+            game_manager.display_score += (diff<10) and diff or step
         end
     end
 
@@ -539,9 +537,9 @@ end
 function init_game()
     game_state = "game"
     
-    -- Reset scores/ui
-    player_score, display_score = 0, 0
+    -- Reset UI
     floating_texts = {}
+
     -- reset particle system
     particle_sys:reset()
     
@@ -633,19 +631,19 @@ function draw_segmented_bar(x, y, value, max_value, filled_col, empty_col)
 end
 
 function draw_ui()
-    -- Black band at bottom
+    -- 𝘣lack band at bottom
     rectfill(0, 119, 127, 127, 0)
     
-    -- HEALTH BAR (top bar)
+    -- 𝘩𝘦𝘢𝘭𝘵𝘩 𝘣𝘢𝘳 (top bar)
     local health_col = player_ship.hp > 30 and 11 or 8  -- green if healthy, red if low
     draw_segmented_bar(4, 120, player_ship.hp, 100, health_col, 5)
     
-    -- Speed bar (bottom bar)
+    -- 𝘴peed bar (bottom bar)
     local current_speed = player_ship:get_speed()
     draw_segmented_bar(4, 124, current_speed, player_ship.max_speed, 8, 5)
     
-    -- Draw score on the right side
-    local score_text = "score: " .. flr(display_score)
+    -- 𝘥raw score on the right side
+    local score_text = "score: " .. flr(game_manager.display_score)
     print(score_text, 127 - #score_text * 4, 121, 10)  -- yellow color
 end
 
@@ -911,6 +909,8 @@ function game_manager:reset()
     self.next_event_index = 1
     self.difficulty_circle_round = 0
     self.difficulty_combat_round = 0
+    self.player_score = 0
+    self.display_score = 0
 end
 
 
@@ -1096,7 +1096,7 @@ function circle_event:update()
                 game_manager:remove_panel(self.timer_panel) self.timer_panel = nil
                 game_manager:remove_panel(self.instruction_panel) self.instruction_panel = nil
 
-                player_score += self.total_points_award
+                game_manager.player_score += self.total_points_award
                 add(floating_texts, floating_text.new(sx, sy - 20, "+"..self.total_points_award, 7))
             else
                 if self.instruction_panel then
@@ -1171,9 +1171,12 @@ function ship.new(start_x, start_y, is_enemy)
         hover_height = 1,
         current_altitude = 0,
         angle = 0,
-        accel = 0.1,
-        friction = 0.85,
-        max_speed = is_enemy and 0.4 or 0.5,
+        accel = 0.05,
+        friction = 0.9,
+        max_speed = is_enemy and 0.35 or 0.4,
+        projectile_speed = 0.4,
+        projectile_life = 40,
+        fire_rate = is_enemy and 0.15 or 0.1,
         size = 10,
         body_col = is_enemy and 8 or 12,
         outline_col = 7,
@@ -1201,8 +1204,8 @@ function ship:ai_update()
     local dy=player_ship.y-self.y
     local dist=dist_trig(dx,dy)
 
-    -- chase/flee mode (single expression)
-    local mode=(self.hp<=30 and dist>15) or (self.hp>30 and (dist>20 or (flr(time()+self.ai_phase)%6)<3))
+    -- chase/flee mode (flee at 40% health)
+    local mode=(self.hp/self.max_hp<=0.3 and dist>15) or (self.hp/self.max_hp>0.3 and (dist>20 or (flr(time()+self.ai_phase)%6)<3))
     if not mode then dx,dy=-dx,-dy end
 
     -- separation from other enemies
@@ -1217,32 +1220,31 @@ function ship:ai_update()
     -- apply movement toward chosen steer vector
     local m=dist_trig(dx,dy)
     if m>0.1 then
-        local a=self.accel*0.7/m
+        local a=self.accel/m
         self.vx+=dx*a self.vy+=dy*a
     end
 
     -- chase fire: target update + cooldown
-    if mode and self:update_targeting() and (not self.last_shot_time or time()-self.last_shot_time>0.15) then
+    if mode and self:update_targeting() and (not self.last_shot_time or time()-self.last_shot_time>self.fire_rate) then
         self:fire_at() self.last_shot_time=time()
     end
 end
 
 
 function ship:fire_at()
-    if not self.target then return end  -- safety check
+    if not self.target then return end
     
     local dx, dy = self.target.x - self.x, self.target.y - self.y
     local dist = dist_trig(dx, dy)
     
     if dist < 15 then
-        -- create projectile with ship velocity + projectile velocity
         add(projectiles, {
             x = self.x,
             y = self.y,
             z = self.current_altitude,
-            vx = self.vx + dx/dist * 0.5,  -- ship velocity + projectile velocity
-            vy = self.vy + dy/dist * 0.5,
-            life = 30,
+            vx = self.vx + dx/dist * self.projectile_speed,
+            vy = self.vy + dy/dist * self.projectile_speed,
+            life = self.projectile_life,
             owner = self,
         })
         sfx(63)
@@ -1301,7 +1303,7 @@ function ship:update()
 
         -- targeting and shooting
         self:update_targeting()
-        if btn(❎) and (not self.last_shot_time or time() - self.last_shot_time > 0.1) then
+        if btn(❎) and (not self.last_shot_time or time() - self.last_shot_time > self.fire_rate) then
             self:fire_at()
             self.last_shot_time = time()
         end
@@ -1497,7 +1499,7 @@ function update_projectiles()
                     
                     if t.is_enemy then
                         del(enemies, t)
-                        player_score += 200
+                        game_manager.player_score += 200
                     else
                         -- player death - restart or something
                     end
@@ -1558,7 +1560,7 @@ function combat_event:update()
     -- wave cleared ヌ●★ finish (no "0 enemies left" flash)
     if remaining == 0 then
         self.completed, self.success = true, true
-        player_score += 1000
+        game_manager.player_score += 1000
         if self.instruction_panel then
             game_manager:remove_panel(self.instruction_panel)
             self.instruction_panel = nil
