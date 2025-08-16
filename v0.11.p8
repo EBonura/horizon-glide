@@ -218,10 +218,11 @@ function _update()
             -- restart
             if btnp(❎) or btnp(🅾️) then
                 player_ship.dead=false
-                player_ship.hp=100
-                player_ship.x,player_ship.y=0,0
-                game_manager.active_panels={}
+                player_ship.hp=100                
+                game_manager:reset()  -- just call reset!
+                
                 enemies,projectiles={},{}
+                tile_manager:update_player_position(0, 0)
             end
         end
 
@@ -585,7 +586,7 @@ function draw_world()
     for t in all(tile_manager.tile_list) do if t.height>0 then t:draw() end end
 
     -- fx + ship
-    particle_sys:draw(cam_offset_x,cam_offset_y)
+    particle_sys:draw()
     if not player_ship.dead then player_ship:draw() end
 end
 
@@ -609,7 +610,7 @@ function draw_game()
     end
 
     -- target cursor
-    if player_ship.target and player_ship.target.get_screen_pos then
+    if not player_ship.dead and player_ship.target and player_ship.target.get_screen_pos then
         local tx,ty=player_ship.target:get_screen_pos()
         rect(tx-8,ty-8,tx+8,ty+8,8)
     end
@@ -762,131 +763,120 @@ function panel:draw()
 end
 
 
+-- === 𝘶𝘯𝘪𝘧𝘪𝘦𝘥 𝘱𝘢𝘳𝘵𝘪𝘤𝘭𝘦 𝘴𝘺𝘴𝘵𝘦𝘮 (all in world coords) ===
+particle_sys={list={}}
 
--- PARTICLE SYSTEM
-particle = {}
-particle.__index = particle
-
-function particle.new(x, y, z, col, behavior)
-    local p = {
-        x = x,
-        y = y,
-        z = z,
-        vx = (rnd() - 0.5) * 0.05,
-        vy = (rnd() - 0.5) * 0.05,
-        vz = -rnd() * 0.3 - 0.2,
-        life = 20 + rnd(10),
-        max_life = 30,
-        col = col,
-        size = 1 + rnd(1),
-        behavior = behavior or "smoke"  -- default is smoke
-    }
-    
-    -- Explosion setup - spread out fast then slow down
-    if behavior == "explosion" then
-        local angle = rnd()
-        local speed = 1 + rnd(2)  -- fast initial speed
-        p.vx = cos(angle) * speed
-        p.vy = sin(angle) * speed
-        p.vz = (rnd() - 0.5) * 2  -- some go up, some down
-        p.life = 20 + rnd(10)
-        p.max_life = 30
-        p.size = 1 + rnd(2)
-        -- cycle through explosion colors: white->yellow->orange->red
-        p.col = ({7, 10, 9, 8})[flr(rnd(4)) + 1]
-    end
-    
-    return setmetatable(p, particle)
-end
-
-function particle:update()
-    self.x += self.vx
-    self.y += self.vy
-    self.z += self.vz
-
-    if self.behavior == "explosion" then
-        -- explosion particles slow down quickly
-        self.vx *= 0.85
-        self.vy *= 0.85
-        self.vz *= 0.9
-        -- and fall after initial burst
-        self.vz -= 0.1
-    else
-        -- smoke behavior (your existing code)
-        -- particles just go up, no gravity
-        -- slight deceleration
-        self.vz *= 0.95
-        -- apply drag
-        self.vx *= 0.9
-        self.vy *= 0.9
-    end
-
-    self.life -= 1
-    return self.life > 0
-end
-
-function particle:draw(cam_x, cam_y)
-    -- convert to screen coordinates
-    local sx,sy = iso(self.x,self.y) sy+=self.z
-
-    -- fade out based on life
-    local alpha = self.life / self.max_life
-
-    if alpha > 0.5 then
-        if self.size > 1.5 then
-            circfill(sx, sy, 1, self.col)
-        else
-            pset(sx, sy, self.col)
-        end
-    elseif (alpha > 0.25 and rnd() > 0.3) or (alpha <= 0.25 and rnd() > 0.6) then
-        pset(sx, sy, self.col)
-    end
-end
-
--- particle system: manages particle list without instantiation
-particle_sys = {particles={}}
-
--- reset the particle list and keep the global alias in sync
 function particle_sys:reset()
-    self.particles = {}
+    self.list={}
 end
 
--- spawn multiple particles (defaults to 1)
-function particle_sys:spawn(x,y,z,col,num)
-    for i=1,num do
-        add(self.particles,
-            particle.new(x+(rnd()-.5)*.1,
-                         y+(rnd()-.5)*.1,
-                         z,col,"smoke"))
+-- kind: 0=smoke, 1=blast (all use world coords)
+local function make_particle(x,y,z,vx,vy,size,life,kind,col)
+    return {
+        x=x,y=y,z=z or 0,
+        vx=vx,vy=vy,vz=0,
+        size=size,
+        life=life,max_life=life,
+        kind=kind,
+        col=col
+    }
+end
+
+-- 𝘴𝘮𝘰𝘬𝘦 (world space)
+function particle_sys:spawn(x,y,z,col,count)
+    count=count or 1
+    for i=1,count do
+        local p=make_particle(
+            x+(rnd()-.5)*.1,
+            y+(rnd()-.5)*.1,
+            z,
+            (rnd()-.5)*.05,
+            (rnd()-.5)*.05,
+            1+rnd(1),
+            20+rnd(10),
+            0,  -- smoke
+            col or 0)
+        p.vz=-rnd()*0.3-0.2
+        add(self.list,p)
     end
 end
 
-
-function particle_sys:explode(x, y, z, size)
-    for i=1,size do
-        add(self.particles, particle.new(x, y, z, nil, "explosion"))
-    end
-end
-
--- update particles, remove dead ones and enforce a maximum count
-function particle_sys:update()
-    for i=#self.particles,1,-1 do
-        if not self.particles[i]:update() then
-            deli(self.particles,i)
+-- 𝘦𝘹𝘱𝘭𝘰𝘴𝘪𝘰𝘯𝘴 (now in world space)
+function particle_sys:explode(wx,wy,z,scale)
+    local function add_group(radius,speed,size_px,life,count)
+        for i=1,count do
+            -- Create particles in world space with world velocities
+            local angle = rnd()
+            local dist = rnd() * radius * scale * 0.1  -- convert pixel radius to world units
+            local vel = rnd() * speed * scale * 0.01   -- convert pixel speed to world units
+            
+            add(self.list, make_particle(
+                wx + cos(angle) * dist,
+                wy + sin(angle) * dist,
+                z + rnd() * 0.5,  -- slight vertical variation
+                cos(angle) * vel,
+                sin(angle) * vel,
+                size_px * scale,
+                life,
+                1))  -- all explosions are kind=1 (blast)
         end
     end
-    while #self.particles>100 do
-        deli(self.particles,1)
+    -- core / medium / outer (fireballs)
+    add_group(4,0.5,3+rnd(2),15,flr(3*scale))
+    add_group(6,1.0,2+rnd(1),20,flr(5*scale))
+    add_group(8,1.5,1,      25,flr(4*scale))
+    -- removed debris line
+end
+
+function particle_sys:update()
+    for i=#self.list,1,-1 do
+        local p=self.list[i]
+        
+        -- all particles use world physics
+        p.x+=p.vx 
+        p.y+=p.vy 
+        p.z+=p.vz
+        p.vx*=0.9 
+        p.vy*=0.9 
+        p.vz*=0.95
+        
+        p.life-=1
+        if p.life<=0 then deli(self.list,i) end
+    end
+    while #self.list>100 do deli(self.list,1) end
+end
+
+function particle_sys:draw()
+    for p in all(self.list) do
+        -- ALL particles project from world to screen
+        local screen_x,screen_y=iso(p.x,p.y) 
+        screen_y+=p.z  -- z is in screen units (negative = up)
+        
+        if p.kind==0 then
+            -- smoke rendering
+            local alpha=p.life/p.max_life
+            if alpha>0.5 then
+                if p.size>1.5 then
+                    circfill(screen_x,screen_y,1,p.col)
+                else
+                    pset(screen_x,screen_y,p.col)
+                end
+            elseif (alpha>0.25 and rnd()>0.3) or (alpha<=0.25 and rnd()>0.6) then
+                pset(screen_x,screen_y,p.col)
+            end
+        else
+            -- blast rendering (kind==1)
+            local alpha=p.life/p.max_life
+            local col=7
+            if alpha<0.8 then col=10 end
+            if alpha<0.5 then col=9 end
+            if alpha<0.3 then col=8 end
+            if alpha<0.15 then col=2 end
+            circfill(screen_x,screen_y,p.size,col)
+        end
     end
 end
 
-
--- draw particles relative to the camera
-function particle_sys:draw(cx, cy)
-    for p in all(self.particles) do
-        p:draw(cx, cy)
-    end
-end
 
 
 
@@ -895,29 +885,32 @@ game_manager = {}
 game_manager.__index = game_manager
 
 function game_manager.new()
-    return setmetatable({
-        state = "idle",
-        current_event = nil,
-        idle_start_time = time(),
+    local self = setmetatable({
+        -- just create the object with placeholder values
         idle_duration = 5,
         event_types = {"combat", "circles"},
-        -- event_types = {"combat"},
-
-        active_panels = {},
-        next_event_index = 1,
-
-        -- difficulty progression (flat vars)
-        difficulty_circle_round   = 0,
-        difficulty_rings_base     = 3,
-        difficulty_rings_step     = 1,
-        difficulty_base_time      = 5,
-        difficulty_recharge_start = 2,
-        difficulty_recharge_step  = 0.2,
-        difficulty_recharge_min   = 0.5,
         
-        -- combat difficulty
-        difficulty_combat_round = 0,
+        -- difficulty settings that don't reset
+        difficulty_rings_base = 3,
+        difficulty_rings_step = 1,
+        difficulty_base_time = 5,
+        difficulty_recharge_start = 2,
+        difficulty_recharge_step = 0.2,
+        difficulty_recharge_min = 0.5,
     }, game_manager)
+    
+    self:reset()  -- initialize all the resettable fields
+    return self
+end
+
+function game_manager:reset()
+    self.state = "idle"
+    self.current_event = nil
+    self.idle_start_time = time()
+    self.active_panels = {}
+    self.next_event_index = 1
+    self.difficulty_circle_round = 0
+    self.difficulty_combat_round = 0
 end
 
 
@@ -1493,18 +1486,14 @@ function update_projectiles()
                 p.life = 0
                 
                 -- SMALL EXPLOSION when projectile hits
-                particle_sys:explode(p.x, p.y, 
-                    -t.current_altitude * block_h, 
-                    10)  -- 10 particles for hit
+                particle_sys:explode(p.x, p.y, -t.current_altitude * block_h, 0.8)
                 
                 -- death check
                 if t.hp <= 0 then
                     sfx(62)  -- play death sound
                     
                     -- BIG EXPLOSION when ship dies
-                    particle_sys:explode(t.x, t.y, 
-                        -t.current_altitude * block_h, 
-                        20)  -- 20 particles for death
+                    particle_sys:explode(t.x, t.y, -t.current_altitude * block_h, 3)
                     
                     if t.is_enemy then
                         del(enemies, t)
