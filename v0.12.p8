@@ -93,8 +93,8 @@ function _init()
     startup_phase = "title"
     startup_timer = 0
     startup_view_range = 0
-    title_x1 = -64  -- Start HORIZON fully off-screen
-    title_x2 = 128  -- Start GLIDE fully off-screen
+    title_x1 = -64
+    title_x2 = 128
     
     -- menu panels
     play_panel = nil
@@ -138,7 +138,7 @@ function _init()
         {name="scale", values={8, 10, 12, 14, 16}, current=2},
         {name="water", values={-4, -3, -2, -1, 0, 1, 2, 3, 4}, current=4},
         {name="seed", values={}, current=1, is_seed=true},
-        {name="random", is_action=true},  -- shortened name
+        {name="random", is_action=true},
     }
     
     menu_cursor = 1
@@ -152,7 +152,14 @@ function _init()
     
     -- set ship altitude
     player_ship.current_altitude = player_ship:get_terrain_height_at(0, 0) + player_ship.hover_height
+
+    -- === TOP MESSAGE STATE ===
+    ui_msg="" ui_vis=0 ui_until=0 ui_col=7
+    -- === RIGHT-SLOT ===
+    ui_rmsg="" ui_rcol=7
 end
+
+
 
 
 function _update()
@@ -184,68 +191,71 @@ function _update()
 
         -- phase logic
         if startup_phase=="title" then
-            -- zoom out (view_range grows; tiles refill next frame via update_player_position)
             if startup_view_range<7 then
                 startup_view_range+=0.5
                 view_range=flr(startup_view_range)
             end
-            -- title slide
             if title_x1<20 then title_x1+=6 end
             if title_x2>68 then title_x2-=6 end
-            -- handoff to menu
             if startup_view_range>=7 and title_x1>=20 and title_x2<=68 then
                 startup_phase="menu_select"
                 init_menu_select()
             end
         elseif startup_phase=="menu_select" then
             update_menu_select()
-        else -- "customize"
+        else
             update_customize()
         end
 
     elseif game_state=="game" then
         if not player_ship.dead then
-            -- world update
             player_ship:update()
             game_manager:update()
-            -- camera ease
             local tx,ty=player_ship:get_camera_target()
             cam_offset_x+= (tx-cam_offset_x)*0.3
             cam_offset_y+= (ty-cam_offset_y)*0.3
         else
-            -- restart
+            -- Simple death message based on how long player has been dead
+            if not player_ship.death_time then
+                player_ship.death_time = time()
+                ui_say("game over", 2, 8)
+            elseif time() - player_ship.death_time > 2.5 then
+                ui_say("❎ to restart", 0, 7)  -- shorter message
+            end
+            
             if btnp(❎) or btnp(🅾️) then
                 player_ship.dead=false
+                player_ship.death_time=nil  -- reset death timer
                 player_ship.hp=100                
-                game_manager:reset()  -- just call reset!
-                
+                game_manager:reset()
                 enemies,projectiles={},{}
                 tile_manager:update_player_position(0, 0)
+                ui_msg=""  -- clear any message
             end
         end
 
-        -- projectiles
         update_projectiles()
 
-        -- floating texts (remove finished in place)
         for i=#floating_texts,1,-1 do
             if not floating_texts[i]:update() then
                 deli(floating_texts,i)
             end
         end
 
-        -- score tween
         if game_manager.display_score < game_manager.player_score then
             local diff = game_manager.player_score - game_manager.display_score
             local step = flr((diff+9)/10)
             game_manager.display_score += (diff<10) and diff or step
         end
+
+        -- tick top message
+        ui_tick()
     end
 
-    -- particles + cache cleanup
     particle_sys:update()
     tile_manager:cleanup_cache()
 end
+
 
 
 
@@ -543,7 +553,7 @@ function init_game()
     -- reset particle system
     particle_sys:reset()
     
-    -- Nneed to reset Ship state for game mode
+    -- game manager
     game_manager = game_manager.new()
     
     -- prevent immediate shooting
@@ -555,7 +565,13 @@ function init_game()
     -- Ensure altitude is correct
     player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
     last_cache_cleanup = time()
+
+    -- === wipe top texts (new) ===
+    ui_msg="" ui_vis=0 ui_until=0
+    ui_rmsg=""
 end
+
+
 
 function draw_world()
     -- water first
@@ -590,7 +606,6 @@ end
 
 
 
-
 function draw_game()
     cls(1)
     draw_world()
@@ -616,10 +631,11 @@ function draw_game()
     -- floating texts
     for f in all(floating_texts) do f:draw() end
 
-    -- ui + panels
+    -- ui (top + bottom)
     draw_ui()
-    for p in all(game_manager.active_panels) do p:draw() end
 end
+
+
 
 
 function draw_segmented_bar(x, y, value, max_value, filled_col, empty_col)
@@ -631,21 +647,59 @@ function draw_segmented_bar(x, y, value, max_value, filled_col, empty_col)
 end
 
 function draw_ui()
-    -- Black band at bottom
+    -- === TOP BAR ===
+    rectfill(0,0,127,7,0)  -- back to original 8 pixel height
+    
+    -- Draw retro screen effect behind sprite (larger box, sprite moved down)
+    rectfill(0,0,27,25,0)  -- black background (2 pixels bigger: 28x26)
+    rect(0,0,27,25,5)  -- dark grey border
+    
+    -- Dark green scanlines (horizontal) - now touching the border
+    for y=2,23,4 do
+        line(1,y,26,y,3)  -- from edge to edge inside border
+    end
+    
+    -- Dark green vertical lines - now touching the border
+    for x=4,24,6 do
+        line(x,1,x,24,3)  -- from edge to edge inside border
+    end
+    
+    -- Draw 3x3 sprite on top (moved down 2 pixels)
+    spr(64,2,2,3,3)
+    
+    -- Draw mouth sprite based on time-based animation
+    if ui_msg!="" then
+        -- Flap mouth based on time for a smoother effect
+        if (time()*8)%2<1 then
+            spr(99,10,18)  -- sprite 99 at bottom center position
+        end
+    end
+    
+    -- left message (typewriter) - moved right to accommodate sprite box
+    if ui_msg!="" then
+        print(sub(ui_msg,1,ui_vis),30,2,ui_col)  -- moved to 30 to clear the bigger border
+    end
+    
+    -- right slot (independent)
+    if ui_rmsg!="" then
+        local w=#ui_rmsg*4
+        print(ui_rmsg, 127-w-2, 2, ui_rcol)
+    end
+
+    -- === BOTTOM HUD ===
     rectfill(0, 119, 127, 127, 0)
     
-    -- HEALTH BAR (top bar)
-    local health_col = player_ship.hp > 30 and 11 or 8  -- green if healthy, red if low
+    local health_col = player_ship.hp > 30 and 11 or 8
     draw_segmented_bar(4, 120, player_ship.hp, 100, health_col, 5)
     
-    -- Speed bar (bottom bar)
     local current_speed = player_ship:get_speed()
     draw_segmented_bar(4, 124, current_speed, player_ship.max_speed, 8, 5)
     
-    -- Draw score on the right side
     local score_text = "score: " .. flr(game_manager.display_score)
-    print(score_text, 127 - #score_text * 4, 121, 10)  -- yellow color
+    print(score_text, 127 - #score_text * 4, 121, 10)
 end
+
+
 
 
 -- FLOATING TEXT CLASS
@@ -905,7 +959,6 @@ function game_manager:reset()
     self.state = "idle"
     self.current_event = nil
     self.idle_start_time = time()
-    self.active_panels = {}
     self.next_event_index = 1
     self.difficulty_circle_round = 0
     self.difficulty_combat_round = 0
@@ -928,19 +981,9 @@ function game_manager:update()
             if e.completed then self:end_event(e.success) end
         end
     end
-
-    -- panels: remove finished ones in place
-    for i=#self.active_panels,1,-1 do
-        if not self.active_panels[i]:update() then
-            deli(self.active_panels,i)
-        end
-    end
 end
 
 
-function game_manager:add_panel(panel)
-    add(self.active_panels, panel)
-end
 
 function game_manager:start_random_event()
     -- pick event type and advance pointer
@@ -964,17 +1007,20 @@ function game_manager:start_random_event()
 end
 
 
-
 function game_manager:end_event(success)
     -- return to idle
     self.state="idle"
     self.idle_start_time=time()
 
-    -- banner panel
-    local cp=panel.new(30,90,nil,nil, success and "eVENT cOMPLETE!" or "eVENT fAILED!", success and 11 or 8, 90)
-    cp:set_position(30,105,false)
-    cp.selected=success
-    self:add_panel(cp)
+    -- clear right slot (timer etc.)
+    ui_rmsg=""
+
+    -- if the player died, don't show message here (let update loop handle it)
+    if (not success) and player_ship and player_ship.dead then
+        -- do nothing - death messages handled in _update
+    else
+        ui_say(success and "event complete!" or "event failed", 2, success and 11 or 8)
+    end
 
     -- difficulty bump on success
     if success then
@@ -991,9 +1037,7 @@ end
 
 
 
-function game_manager:remove_panel(panel_to_remove)
-    del(self.active_panels, panel_to_remove)
-end
+
 
 -- CIRCLE RACE EVENT
 circle_event = {}
@@ -1013,15 +1057,11 @@ function circle_event.new(opt)
         circles = {},
         current_target = 1,
         completed = false,
-        success = false,
-
-        timer_panel = nil,
-        instruction_panel = nil,
+        success = false
     }, circle_event)
 
     local ring_count = opt.num_rings or 3
 
-    -- generate rings
     for i = 1, ring_count do
         local angle = rnd(1)
         local distance = 8 + rnd(4)
@@ -1030,42 +1070,39 @@ function circle_event.new(opt)
         add(self.circles, { x=cx, y=cy, radius=1.2, collected=false })
     end
 
-    -- init timer
     self.end_time = time() + self.base_time
-
-    -- one-time payout if completed (no per-ring score during play)
     self.total_points_award = #self.circles * self.per_ring_points + self.completion_bonus
 
-    -- UI
-    self.instruction_panel = panel.new(20, 4, nil, nil,"reach all "..#self.circles.." circles!", 8)
-    game_manager:add_panel(self.instruction_panel)
-
-    self.timer_panel = panel.new(48, 16, 40, nil, "0.00s", 5)
-    game_manager:add_panel(self.timer_panel)
+    -- Intro message
+    ui_say("reach all "..#self.circles.." circles!", 2, 8)
+    -- Seed right slot immediately (doesn't fight the left message)
+    ui_rset(fmt2(self.base_time).."s", 5)
 
     return self
 end
 
 
-function circle_event:update()
-    -- time left based on moving end_time
-    local time_left = self.end_time - time()
 
+
+
+
+function circle_event:update()
+    local now = time()
+    local time_left = self.end_time - now
+
+    -- timeout -> fail
     if time_left <= 0 then
-        -- time out: fail
         self.completed = true
         self.success = false
-        if self.timer_panel then game_manager:remove_panel(self.timer_panel) self.timer_panel = nil end
-        if self.instruction_panel then game_manager:remove_panel(self.instruction_panel) self.instruction_panel = nil end
+        ui_say("event failed", 2, 8)
+        ui_rmsg="" -- clear right slot
         return
     end
 
-    -- update timer UI with 2 decimal places
-    if self.timer_panel then
-        self.timer_panel.text = fmt2(max(0, time_left)).."S"
-    end
+    -- update right slot timer independently of left message
+    ui_rset("time "..fmt2(max(0, time_left)).."s", 5)
 
-    -- check current ring
+    -- rings
     local circle = self.circles[self.current_target]
     if circle and not circle.collected then
         local dx, dy = player_ship.x - circle.x, player_ship.y - circle.y
@@ -1075,14 +1112,14 @@ function circle_event:update()
             circle.collected = true
             sfx(61)
 
-            -- restore health
-            local health_gain = 10  -- or whatever amount you want
+            -- heal
+            local health_gain = 10
             player_ship.hp = min(player_ship.hp + health_gain, player_ship.max_hp)
 
-            -- only give extra time if this isn't the last ring
-            local sx, sy = player_ship:get_screen_pos()
+            -- bonus time (not on last)
             if self.current_target < #self.circles then
                 self.end_time += self.recharge_seconds
+                local sx, sy = player_ship:get_screen_pos()
                 add(floating_texts, floating_text.new(sx, sy - 10, "+"..fmt2(self.recharge_seconds).."s"))
                 add(floating_texts, floating_text.new(sx, sy - 20, "+10hp", 11))
             end
@@ -1090,23 +1127,25 @@ function circle_event:update()
             self.current_target += 1
 
             if self.current_target > #self.circles then
-                -- success: single payout once
+                -- success
                 self.completed, self.success = true, true
-
-                game_manager:remove_panel(self.timer_panel) self.timer_panel = nil
-                game_manager:remove_panel(self.instruction_panel) self.instruction_panel = nil
-
+                local sx, sy = player_ship:get_screen_pos()
                 game_manager.player_score += self.total_points_award
                 add(floating_texts, floating_text.new(sx, sy - 20, "+"..self.total_points_award, 7))
+                ui_say("event complete!", 2, 11)
+                ui_rmsg="" -- clear right slot
             else
-                if self.instruction_panel then
-                    local remaining = #self.circles - self.current_target + 1
-                    self.instruction_panel.text = remaining.." circle"..(remaining>1 and "s" or "").." left"
-                end
+                -- progress message (right slot keeps updating separately)
+                local remaining = #self.circles - self.current_target + 1
+                ui_say(remaining.." circle"..(remaining>1 and "s" or "").." left", 1.2, 10)
             end
         end
     end
 end
+
+
+
+
 
 
 function circle_event:draw()
@@ -1512,6 +1551,32 @@ function update_projectiles()
     projectiles = new_proj
 end
 
+function ui_say(t,d,c)
+    ui_msg=t
+    ui_vis=0
+    ui_col=c or 7
+    ui_until=d and (time()+d) or 0  -- 0 = persistent
+end
+
+function ui_rset(t,c)
+    ui_rmsg=t
+    ui_rcol=c or 7
+end
+
+function ui_tick()
+    if ui_msg!="" then
+        if ui_vis<#ui_msg then 
+            local speed = (#ui_msg > 15) and 3 or 1
+            ui_vis = min(ui_vis + speed, #ui_msg)
+        end
+        if ui_until>0 and time()>ui_until then
+            ui_msg="" 
+            ui_vis=0
+            ui_until=0  -- IMPORTANT: reset ui_until too!
+        end
+    end
+end
+
 
 
 -- COMBAT EVENT
@@ -1522,17 +1587,15 @@ function combat_event.new()
     local self = setmetatable({
         completed = false,
         success = false,
-        instruction_panel = nil,
         start_count = 0,
         switched = false,
-        is_combat = true  -- marker for difficulty tracking
+        is_combat = true,
+        last_msg = nil   -- track last message shown
     }, combat_event)
 
-    -- intro banner
-    self.instruction_panel = panel.new(64 - 50, 4, nil, nil, "enemy wave incoming!", 8)
-    game_manager:add_panel(self.instruction_panel)
+    -- top message
+    ui_say("enemy wave incoming!",2,8)
 
-    -- progressive difficulty: 2 + round number, max 6
     local num_enemies = min(2 + game_manager.difficulty_combat_round, 6)
     
     enemies = {}
@@ -1549,6 +1612,7 @@ function combat_event.new()
     return self
 end
 
+
 function combat_event:update()
     -- update enemies
     for e in all(enemies) do
@@ -1557,44 +1621,39 @@ function combat_event:update()
 
     local remaining = #enemies
 
-    -- wave cleared ヌ●★ finish (no "0 enemies left" flash)
+    -- wave cleared
     if remaining == 0 then
         self.completed, self.success = true, true
         game_manager.player_score += 1000
-        if self.instruction_panel then
-            game_manager:remove_panel(self.instruction_panel)
-            self.instruction_panel = nil
-        end
         return
     end
 
-    -- switch text only after first kill, then keep it updated
-    if self.instruction_panel then
-        if (not self.switched) and remaining < self.start_count then
-            self.switched = true
-        end
-        if self.switched then
-            self.instruction_panel.text =
-                (remaining == 1) and "1 enemy left" or (remaining.." enemies left")
+    -- after first kill, show remaining (only when it changes)
+    if (not self.switched) and remaining < self.start_count then
+        self.switched = true
+        self.last_msg = nil
+    end
+    if self.switched then
+        local msg = (remaining==1) and "1 enemy left" or (remaining.." enemies left")
+        if self.last_msg ~= msg then
+            ui_say(msg, 2, 8)
+            self.last_msg = msg
         end
     end
 
-    -- player death game over
+    -- player death: mark completed/failed; end_event will show messages
     if player_ship.hp <= 0 then
         self.completed, self.success = true, false
         player_ship.dead = true
-        game_manager.active_panels = {}
-        local gop = panel.new(44, 50, nil, nil, "game over", 8)
-        game_manager:add_panel(gop)
-        local cp = panel.new(24, 80, nil, nil, "press ❎ to restart", 8, 90)
-        game_manager:add_panel(cp)
-        if self.instruction_panel then
-            game_manager:remove_panel(self.instruction_panel)
-            self.instruction_panel = nil
-        end
+        ui_rmsg = "" -- clear right slot (timer etc.)
         return
     end
 end
+
+
+
+
+
 
 function combat_event:draw()
     for e in all(enemies) do
@@ -1917,14 +1976,14 @@ ee050560005665000d5050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eee0005665666dddd5000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeee0506666ddddd5050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeee0500666ddddd0050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eee0500560000d50050eeee560000d5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eee0050506666050500eeee560000d5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeee00050666605000eeeee50666605eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeee0005dddd5000eeeeee00dddd00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeeee0055555500eeeeeee05555550eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeeeee00000000eeeeeeee00000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeee0500560000d50050eeee560000d5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeee0050506666050500eeee560000d5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeee00050666605000eeeee50666605eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeee0005dddd5000eeeeee00dddd00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeee0055555500eeeeeee05555550eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeee00000000eeeeeeee00000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
