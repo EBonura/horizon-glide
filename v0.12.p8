@@ -157,6 +157,9 @@ function _init()
     ui_msg="" ui_vis=0 ui_until=0 ui_col=7
     -- === RIGHT-SLOT ===
     ui_rmsg="" ui_rcol=7
+    ui_box_h = 6  -- current height (6 = collapsed to fit in top bar)
+    ui_box_target_h = 6  -- target height (6 = collapsed, 26 = expanded)
+    ui_typing_started = false
 end
 
 
@@ -648,45 +651,47 @@ end
 
 function draw_ui()
     -- === TOP BAR ===
-    rectfill(0,0,127,7,0)  -- back to original 8 pixel height
+    rectfill(0,0,127,7,0)
     
-    -- Draw retro screen effect behind sprite (larger box, sprite moved down)
-    rectfill(0,0,27,25,0)  -- black background (2 pixels bigger: 28x26)
-    rect(0,0,27,25,5)  -- dark grey border
+    -- Always draw the box (expanding/collapsing), positioned 1 pixel from top
+    local h = flr(ui_box_h)
+    rectfill(0,1,27,h,0)  -- starts at y=1 instead of y=0
+    rect(0,1,27,h,5)
     
-    -- Dark green scanlines (horizontal) - now touching the border
-    for y=2,23,4 do
-        line(1,y,26,y,3)  -- from edge to edge inside border
-    end
-    
-    -- Dark green vertical lines - now touching the border
-    for x=4,24,6 do
-        line(x,1,x,24,3)  -- from edge to edge inside border
-    end
-    
-    -- Draw 3x3 sprite on top (moved down 2 pixels)
-    spr(64,2,2,3,3)
-    
-    -- Draw mouth sprite based on time-based animation
-    if ui_msg!="" then
-        -- Flap mouth based on time for a smoother effect
-        if (time()*8)%2<1 then
-            spr(99,10,18)  -- sprite 99 at bottom center position
+    -- Always draw green lines (adjust to current height)
+    if h > 3 then  -- only if there's room
+        -- Horizontal lines (fewer when collapsed)
+        for y=3,h-2,4 do
+            line(1,y,26,y,3)
+        end
+        -- Vertical lines (adjust height to box size)
+        for x=4,24,6 do
+            line(x,2,x,h-1,3)
         end
     end
     
-    -- left message (typewriter) - moved right to accommodate sprite box
-    if ui_msg!="" then
-        print(sub(ui_msg,1,ui_vis),30,2,ui_col)  -- moved to 30 to clear the bigger border
+    -- Only draw sprite when expanded enough
+    if h > 25 then
+        spr(64,2,3,3,3)  -- moved down 1 pixel (was 2,2 now 2,3)
+        
+        -- Mouth animation
+        if ui_msg!="" and ui_typing_started and (time()*8)%2<1 then
+            spr(99,10,19)  -- moved down 1 pixel (was 18 now 19)
+        end
     end
     
-    -- right slot (independent)
+    -- Text (only show if typing has started)
+    if ui_msg!="" and ui_typing_started then
+        print(sub(ui_msg,1,ui_vis),30,2,ui_col)
+    end
+    
+    -- Right slot stays the same
     if ui_rmsg!="" then
         local w=#ui_rmsg*4
         print(ui_rmsg, 127-w-2, 2, ui_rcol)
     end
 
-    -- === BOTTOM HUD ===
+    -- === BOTTOM HUD (unchanged) ===
     rectfill(0, 119, 127, 127, 0)
     
     local health_col = player_ship.hp > 30 and 11 or 8
@@ -1019,7 +1024,7 @@ function game_manager:end_event(success)
     if (not success) and player_ship and player_ship.dead then
         -- do nothing - death messages handled in _update
     else
-        ui_say(success and "event complete!" or "event failed", 2, success and 11 or 8)
+        ui_say(success and "event complete!" or "event failed", 3, success and 11 or 8)
     end
 
     -- difficulty bump on success
@@ -1074,7 +1079,7 @@ function circle_event.new(opt)
     self.total_points_award = #self.circles * self.per_ring_points + self.completion_bonus
 
     -- Intro message
-    ui_say("reach all "..#self.circles.." circles!", 2, 8)
+    ui_say("reach all "..#self.circles.." circles!", 3, 8)
     -- Seed right slot immediately (doesn't fight the left message)
     ui_rset(fmt2(self.base_time).."s", 5)
 
@@ -1094,13 +1099,13 @@ function circle_event:update()
     if time_left <= 0 then
         self.completed = true
         self.success = false
-        ui_say("event failed", 2, 8)
+        ui_say("event failed", 3, 8)
         ui_rmsg="" -- clear right slot
         return
     end
 
     -- update right slot timer independently of left message
-    ui_rset("time "..fmt2(max(0, time_left)).."s", 5)
+    ui_rset(fmt2(max(0, time_left)).."s", 5)
 
     -- rings
     local circle = self.circles[self.current_target]
@@ -1132,12 +1137,12 @@ function circle_event:update()
                 local sx, sy = player_ship:get_screen_pos()
                 game_manager.player_score += self.total_points_award
                 add(floating_texts, floating_text.new(sx, sy - 20, "+"..self.total_points_award, 7))
-                ui_say("event complete!", 2, 11)
+                ui_say("event complete!", 3, 11)
                 ui_rmsg="" -- clear right slot
             else
                 -- progress message (right slot keeps updating separately)
                 local remaining = #self.circles - self.current_target + 1
-                ui_say(remaining.." circle"..(remaining>1 and "s" or "").." left", 1.2, 10)
+                ui_say(remaining.." circle"..(remaining>1 and "s" or "").." left", 2, 10)
             end
         end
     end
@@ -1212,11 +1217,11 @@ function ship.new(start_x, start_y, is_enemy)
         angle = 0,
         accel = 0.05,
         friction = 0.9,
-        max_speed = is_enemy and 0.35 or 0.4,
+        max_speed = is_enemy and 0.32 or 0.4,
         projectile_speed = 0.4,
         projectile_life = 40,
         fire_rate = is_enemy and 0.15 or 0.1,
-        size = 10,
+        size = 12,
         body_col = is_enemy and 8 or 12,
         outline_col = 7,
         shadow_col = 1,
@@ -1230,7 +1235,7 @@ function ship.new(start_x, start_y, is_enemy)
         max_hp = is_enemy and 50 or 100,
         hp = is_enemy and 50 or 100,
         target = nil,
-        ai_phase = is_enemy and rnd(4) or 0,
+        ai_phase = is_enemy and rnd(6) or 0,
     }, ship)
 end
 
@@ -1244,7 +1249,8 @@ function ship:ai_update()
     local dist=dist_trig(dx,dy)
 
     -- chase/flee mode (flee at 40% health)
-    local mode=(self.hp/self.max_hp<=0.3 and dist>15) or (self.hp/self.max_hp>0.3 and (dist>20 or (flr(time()+self.ai_phase)%6)<3))
+    local mode=(self.hp/self.max_hp<=0.3 and dist>15) or 
+            (self.hp/self.max_hp>0.3 and (dist>20 or ((time()+self.ai_phase)%6)<3))
     if not mode then dx,dy=-dx,-dy end
 
     -- separation from other enemies
@@ -1404,7 +1410,7 @@ function ship:update()
     -- water rings
     if self.is_hovering and speed > 0.2 then
         self.st = (self.st or 0) + 1
-        if self.st > 3 then
+        if self.st > 4 then
             add(ws, {x = self.x, y = self.y, r = 0, life = 28})
             self.st = 0
         end
@@ -1555,7 +1561,9 @@ function ui_say(t,d,c)
     ui_msg=t
     ui_vis=0
     ui_col=c or 7
-    ui_until=d and (time()+d) or 0  -- 0 = persistent
+    ui_until=d and (time()+d) or 0
+    ui_box_target_h = 26  -- expand when message starts
+    ui_typing_started = false
 end
 
 function ui_rset(t,c)
@@ -1564,7 +1572,21 @@ function ui_rset(t,c)
 end
 
 function ui_tick()
-    if ui_msg!="" then
+    -- Expand/collapse box
+    if ui_box_h != ui_box_target_h then
+        ui_box_h += (ui_box_target_h - ui_box_h) * 0.2
+        if abs(ui_box_h - ui_box_target_h) < 0.5 then 
+            ui_box_h = ui_box_target_h 
+        end
+    end
+    
+    -- Start typing only when box is expanded
+    if ui_box_h > 25 then
+        ui_typing_started = true
+    end
+    
+    -- Only type if box is ready
+    if ui_msg!="" and ui_typing_started then
         if ui_vis<#ui_msg then 
             local speed = (#ui_msg > 15) and 3 or 1
             ui_vis = min(ui_vis + speed, #ui_msg)
@@ -1572,7 +1594,9 @@ function ui_tick()
         if ui_until>0 and time()>ui_until then
             ui_msg="" 
             ui_vis=0
-            ui_until=0  -- IMPORTANT: reset ui_until too!
+            ui_until=0
+            ui_box_target_h = 6  -- collapse when message ends
+            ui_typing_started = false
         end
     end
 end
@@ -1594,7 +1618,7 @@ function combat_event.new()
     }, combat_event)
 
     -- top message
-    ui_say("enemy wave incoming!",2,8)
+    ui_say("enemy wave incoming!",3,8)
 
     local num_enemies = min(2 + game_manager.difficulty_combat_round, 6)
     
@@ -1636,7 +1660,7 @@ function combat_event:update()
     if self.switched then
         local msg = (remaining==1) and "1 enemy left" or (remaining.." enemies left")
         if self.last_msg ~= msg then
-            ui_say(msg, 2, 8)
+            ui_say(msg, 3, 8)
             self.last_msg = msg
         end
     end
