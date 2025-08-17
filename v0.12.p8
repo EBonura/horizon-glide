@@ -16,7 +16,6 @@ function fmt2(n)
 end
 
 function draw_triangle(l,t,c,m,r,b,col)
-    color(col)
     while t>m or m>b do
         l,t,c,m=c,m,l,t
         while m>b do c,m,r,b=r,b,c,m end
@@ -25,12 +24,11 @@ function draw_triangle(l,t,c,m,r,b,col)
     while m do
         local i=(c-l)/(m-t)
         for t=flr(t),min(flr(m)-1,127) do
-            line(l,t,e,t)
-            l+=i e+=j
+        line(l,t,e,t,col)
+        l+=i e+=j
         end
         l,t,m,c,b=c,m,b,r
     end
-    pset(r,t)
 end
 
 
@@ -39,7 +37,7 @@ TERRAIN_PAL_STR = "\1\0\0\12\1\1\15\4\2\3\1\0\11\3\1\4\2\0\6\5\0\7\6\5"
 TERRAIN_THRESH  = {-2,0,2,6,12,18,24,99}
 
 function terrain(x,y)
-    -- cache hit ヌ●★ return 4-tuple fast
+    -- cache hit
     local key=x..","..y
     local c=cell_cache[key]
     if c then return unpack(c) end
@@ -48,34 +46,29 @@ function terrain(x,y)
     local scale=menu_options[1].values[menu_options[1].current]
     local water_level=menu_options[2].values[menu_options[2].current]
     local nx,ny=x/scale,y/scale
-    local cont=perlin2d(nx*0.03,ny*0.03,terrain_perm)*12
+    local cont=perlin2d(nx*.03,ny*.03,terrain_perm)*12
 
-    -- 3-octave detail
-    local hdetail,amp,freq,max_amp=0,1,1,0
-    for i=1,3 do
-        hdetail+=perlin2d(nx*freq,ny*freq,terrain_perm)*amp
-        max_amp+=amp amp*=0.5 freq*=2
-    end
-    hdetail=(hdetail/max_amp)*10
+    -- 3 fixed octaves (normalized by 1.75), then scaled by 10
+    local hdetail=( perlin2d(nx,ny,terrain_perm)
+                    + perlin2d(nx*2,ny*2,terrain_perm)*.5
+                    + perlin2d(nx*4,ny*4,terrain_perm)*.25 )*(10/1.75)
 
-    -- ridges + inland mountain factor
-    local rid=abs(perlin2d(nx*0.5,ny*0.5,terrain_perm))^1.5
-    local inland=max(0,cont/12+0.5)
-    local mountain=rid*inland*20
+    -- ridges + inland mountain factor (inlined)
+    local rid=abs(perlin2d(nx*.5,ny*.5,terrain_perm))^1.5
+    local mountain=rid*max(0,cont/12+.5)*20
 
     -- final clamped height
-    local h=flr(mid(cont+hdetail+mountain - water_level,-4,28))
+    local h=flr(mid(cont+hdetail+mountain-water_level,-4,28))
 
-    -- palette lookup ヌ●★ cache and return via unpack
-    for i=1,8 do
-        if h<=TERRAIN_THRESH[i] then
-            local p=(i-1)*3+1
-            local tuple={ord(TERRAIN_PAL_STR,p),ord(TERRAIN_PAL_STR,p+1),ord(TERRAIN_PAL_STR,p+2),h}
-            cell_cache[key]=tuple
-            return unpack(tuple)
-        end
-    end
+    -- palette lookup + cache
+    local i=1
+    while h>TERRAIN_THRESH[i] do i+=1 end
+    local p=(i-1)*3+1
+    local tuple={ord(TERRAIN_PAL_STR,p),ord(TERRAIN_PAL_STR,p+1),ord(TERRAIN_PAL_STR,p+2),h}
+    cell_cache[key]=tuple
+    return unpack(tuple)
 end
+
 
 
 
@@ -83,84 +76,48 @@ end
 function _init()
     music(0)
 
-    palt(0, false)
-    palt(14, true)
-    
-    -- game state & modes
-    game_state = "startup"
-    
-    -- startup variables
-    startup_phase = "title"
-    startup_timer = 0
-    startup_view_range = 0
-    title_x1 = -64
-    title_x2 = 128
-    
-    -- menu panels
-    play_panel = nil
-    customize_panel = nil
-    customization_panels = {}
-    customize_cursor = 1
-    
-    -- CREATE PLAYER SHIP RIGHT AWAY
-    player_ship = ship.new(0, 0)
-    player_ship.is_hovering = true
-    
-    -- core game variables
-    floating_texts = {}
+    palt(0,false) palt(14,true)
 
-    -- initialize particle system; reset its list and sync alias
-    particle_sys:reset()
-    
-    -- combat
-    enemies = {}
-    projectiles = {}
-    
-    -- camera variables
-    cam_offset_x = 64
-    cam_offset_y = 64
-    
-    -- tile system constants
-    view_range = 0
-    block_h = 2
-    half_tile_width = 12
-    half_tile_height = 6
-    
-    -- terrain generation
-    last_cache_cleanup = 0
-    terrain_perm = nil
-    current_seed = 1337
+    -- state + startup
+    game_state,startup_phase="startup","title"
+    startup_timer,startup_view_range=0,0
+    title_x1,title_x2=-64,128
 
-    ws = {} -- water splashes
-    
-    -- menu configuration (unchanged)
-    menu_options = {
-        {name="scale", values={8, 10, 12, 14, 16}, current=2},
-        {name="water", values={-4, -3, -2, -1, 0, 1, 2, 3, 4}, current=4},
-        {name="seed", values={}, current=1, is_seed=true},
+    -- camera + tile constants (needed before tile_manager)
+    cam_offset_x,cam_offset_y=64,64
+    view_range,half_tile_width,half_tile_height,block_h=0,12,6,2
+
+    -- containers & cursors
+    enemies,projectiles,floating_texts,ws,menu_panels,customization_panels={},{},{},{},{},{}
+    customize_cursor,menu_cursor=1,1
+
+    -- player
+    player_ship=ship.new(0,0)
+    player_ship.is_hovering=true
+
+    -- menu options (MUST be set before any terrain() call)
+    menu_options={
+        {name="scale",  values={8,10,12,14,16}, current=2},
+        {name="water",  values={-4,-3,-2,-1,0,1,2,3,4}, current=4},
+        {name="seed",   values={}, current=1, is_seed=true},
         {name="random", is_action=true},
     }
-    
-    menu_cursor = 1
-    menu_panels = {}
-    
-    -- initialization sequence
-    terrain_perm = generate_permutation(current_seed)
-    cell_cache = {}
-    tile_manager:init()
-    tile_manager:update_player_position(0, 0)
-    
-    -- set ship altitude
-    player_ship.current_altitude = player_ship:get_terrain_height_at(0, 0) + player_ship.hover_height
 
-    -- === TOP MESSAGE STATE ===
-    ui_msg="" ui_vis=0 ui_until=0 ui_col=7
-    -- === RIGHT-SLOT ===
-    ui_rmsg="" ui_rcol=7
-    ui_box_h = 6  -- current height (6 = collapsed to fit in top bar)
-    ui_box_target_h = 6  -- target height (6 = collapsed, 26 = expanded)
-    ui_typing_started = false
+    -- terrain + tiles (terrain() uses menu_options)
+    last_cache_cleanup,current_seed=0,1337
+    terrain_perm,cell_cache=generate_permutation(current_seed),{}
+    tile_manager:init()
+    tile_manager:update_player_position(0,0)
+
+    -- set ship altitude after tiles/terrain exist
+    player_ship.current_altitude=player_ship:get_terrain_height_at(0,0)+player_ship.hover_height
+
+    -- top/right UI (no ui_typing_started needed)
+    ui_msg,ui_vis,ui_until,ui_col="",0,0,7
+    ui_rmsg,ui_rcol="",7
+    ui_box_h,ui_box_target_h=6,6
 end
+
 
 
 
@@ -783,11 +740,7 @@ function panel:update()
     end
 
     -- expand/contract when selected
-    if self.selected then
-        self.expand = min(self.expand + 1, 3)
-    else
-        self.expand = max(self.expand - 1, 0)
-    end
+    self.expand = self.selected and min(self.expand + 1, 3) or max(self.expand - 1, 0)
     
     -- handle life countdown
     if self.life > 0 then
@@ -925,10 +878,7 @@ function particle_sys:draw()
             -- blast rendering (kind==1)
             local alpha=p.life/p.max_life
             local col=7
-            if alpha<0.8 then col=10 end
-            if alpha<0.5 then col=9 end
-            if alpha<0.3 then col=8 end
-            if alpha<0.15 then col=2 end
+            col = alpha<0.15 and 2 or alpha<0.3 and 8 or alpha<0.5 and 9 or alpha<0.8 and 10 or 7
             circfill(screen_x,screen_y,p.size,col)
         end
     end
@@ -971,8 +921,6 @@ function game_manager:reset()
     self.display_score = 0
 end
 
-
-
 function game_manager:update()
     -- state machine
     if self.state=="idle" then
@@ -987,8 +935,6 @@ function game_manager:update()
         end
     end
 end
-
-
 
 function game_manager:start_random_event()
     -- pick event type and advance pointer
@@ -1010,7 +956,6 @@ function game_manager:start_random_event()
     -- activate
     self.state="active"
 end
-
 
 function game_manager:end_event(success)
     -- return to idle
@@ -1039,10 +984,6 @@ function game_manager:end_event(success)
     -- clear current event
     self.current_event=nil
 end
-
-
-
-
 
 -- CIRCLE RACE EVENT
 circle_event = {}
@@ -1085,11 +1026,6 @@ function circle_event.new(opt)
 
     return self
 end
-
-
-
-
-
 
 function circle_event:update()
     local now = time()
@@ -1147,11 +1083,6 @@ function circle_event:update()
         end
     end
 end
-
-
-
-
-
 
 function circle_event:draw()
     -- cache time for animation
@@ -1221,7 +1152,7 @@ function ship.new(start_x, start_y, is_enemy)
         projectile_speed = 0.4,
         projectile_life = 40,
         fire_rate = is_enemy and 0.15 or 0.1,
-        size = 12,
+        size = 11,
         body_col = is_enemy and 8 or 12,
         outline_col = 7,
         shadow_col = 1,
@@ -1244,8 +1175,7 @@ function ship:ai_update()
     if not player_ship then return end
 
     -- base vector to player
-    local dx=player_ship.x-self.x
-    local dy=player_ship.y-self.y
+    local dx,dy=player_ship.x-self.x,player_ship.y-self.y
     local dist=dist_trig(dx,dy)
 
     -- chase/flee mode (flee at 40% health)
