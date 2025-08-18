@@ -576,21 +576,21 @@ function draw_segmented_bar(x, y, value, max_value, filled_col, empty_col)
 end
 
 function draw_ui()
-    -- top bar
+    -- Top bar
     rectfill(0,0,127,7,0)
     
-    -- Always draw the box (expanding/collapsing), positioned 1 pixel from top
+    -- Box
     local h = flr(ui_box_h)
-    rectfill(0,1,27,h,0)  -- starts at y=1 instead of y=0
+    rectfill(0,1,27,h,0) 
     rect(0,1,27,h,5)
     
-    -- Always draw green lines (adjust to current height)
-    if h > 3 then  -- only if there's room
-        -- Horizontal lines (fewer when collapsed)
+    -- Always draw green lines
+    if h > 3 then
+        -- Horizontal lines
         for y=3,h-2,4 do
             line(1,y,26,y,3)
         end
-        -- Vertical lines (adjust height to box size)
+        -- Vertical lines
         for x=4,24,6 do
             line(x,2,x,h-1,3)
         end
@@ -598,11 +598,11 @@ function draw_ui()
     
     -- Only draw sprite when expanded enough
     if h > 25 then
-        spr(64,2,3,3,3)  -- moved down 1 pixel (was 2,2 now 2,3)
+        spr(64,2,3,3,3)
         
         -- Mouth animation
         if ui_msg!="" and ui_typing_started and (time()*8)%2<1 then
-            spr(99,10,19)  -- moved down 1 pixel (was 18 now 19)
+            spr(99,10,19)
         end
     end
     
@@ -623,7 +623,7 @@ function draw_ui()
     local health_col = player_ship.hp > 30 and 11 or 8
     draw_segmented_bar(4, 120, player_ship.hp, 100, health_col, 5)
     
-    local current_speed = player_ship:get_speed()
+    local current_speed = dist_trig(player_ship.vx, player_ship.vy)
     draw_segmented_bar(4, 124, current_speed, player_ship.max_speed, 8, 5)
     
     local score_text = "score: " .. flr(game_manager.display_score)
@@ -692,35 +692,24 @@ end
 
 
 function panel:update()
-    -- handle animation delay
-    if self.anim_delay > 0 then
-        self.anim_delay -= 1
-        return true  -- don't move yet, just countdown
-    end
-    
-    -- smooth movement (fixed speed of 0.2)
-    if self.x != self.target_x or self.y != self.target_y then
-        self.x += (self.target_x - self.x) * 0.2
-        self.y += (self.target_y - self.y) * 0.2
-        
-        -- snap when close
-        if abs(self.x - self.target_x) < 0.5 then self.x = self.target_x end
-        if abs(self.y - self.target_y) < 0.5 then self.y = self.target_y end
+    if self.anim_delay>0 then self.anim_delay-=1 return true end
+
+    -- smooth move
+    if self.x!=self.target_x or self.y!=self.target_y then
+        self.x+=(self.target_x-self.x)*0.2
+        self.y+=(self.target_y-self.y)*0.2
+        if abs(self.x-self.target_x)<0.5 then self.x=self.target_x end
+        if abs(self.y-self.target_y)<0.5 then self.y=self.target_y end
     end
 
-    -- expand/contract when selected
-    self.expand = self.selected and min(self.expand + 1, 3) or max(self.expand - 1, 0)
-    
-    -- handle life countdown
-    if self.life > 0 then
-        self.life -= 1
-        return self.life > 0
-    elseif self.life == 0 then
-        return false
-    end
+    -- expand/contract
+    self.expand = self.selected and min(self.expand+1,3) or max(self.expand-1,0)
 
-    return true
+    -- life countdown
+    if self.life>0 then self.life-=1 return self.life>0 end
+    return self.life!=0
 end
+
 
 -- draw function remains the same
 function panel:draw()
@@ -846,8 +835,7 @@ function particle_sys:draw()
         else
             -- blast rendering (kind==1)
             local alpha=p.life/p.max_life
-            local col=7
-            col = alpha<0.15 and 2 or alpha<0.3 and 8 or alpha<0.5 and 9 or alpha<0.8 and 10 or 7
+            local col=alpha<0.15 and 2 or alpha<0.3 and 8 or alpha<0.5 and 9 or alpha<0.8 and 10 or 7
             circfill(screen_x,screen_y,p.size,col)
         end
     end
@@ -865,7 +853,7 @@ function game_manager.new()
         -- just create the object with placeholder values
         idle_duration = 5,
         -- event_types = {"combat", "circles"},
-        event_types = {"circles"},
+        event_types = {"combat"},
 
         
         -- difficulty settings that don't reset
@@ -1266,25 +1254,16 @@ function ship:get_terrain_height_at(x, y)
 end
 
 function ship:update_targeting()
-    -- forward vector
     local fx,fy=cos(self.angle),sin(self.angle)
-
-    -- search best target (ヌ웃さ15, in front: dot > 0.5*dist)
     local best,found=15,nil
-    if self.is_enemy then
-        local t=player_ship
-        local dx,dy=t.x-self.x,t.y-self.y
-        local d=dist_trig(dx,dy)
-        if d<best and (dx*fx+dy*fy)>.5*d then found=t end
-    else
-        for t in all(enemies) do
+    local list=self.is_enemy and {player_ship} or enemies
+    for t in all(list) do
+        if t~=self then
             local dx,dy=t.x-self.x,t.y-self.y
             local d=dist_trig(dx,dy)
             if d<best and (dx*fx+dy*fy)>.5*d then best=d found=t end
         end
     end
-
-    -- assign target or aim ahead
     if found then self.target=found return true end
     if not self.is_enemy then
         local a=atan2(self.vx,self.vy)
@@ -1294,6 +1273,7 @@ function ship:update_targeting()
     end
     return false
 end
+
 
 function ship:update()
     -- AI or player input
@@ -1320,7 +1300,7 @@ function ship:update()
     -- movement and speed clamp
     self.vx *= self.friction
     self.vy *= self.friction
-    local speed = self:get_speed()
+    local speed = dist_trig(self.vx, self.vy)
     if speed > self.max_speed then
         local s = self.max_speed / speed
         self.vx *= s
@@ -1388,23 +1368,20 @@ end
 
 
 function ship:get_camera_target()
-    -- choose world-space focus point
-    local focus_x, focus_y = self.x, self.y
+    local fx,fy=self.x,self.y
     if not self.is_enemy then
-        local nearest_enemy, nearest_dist = nil, 10
+        local best,ne=10
         for e in all(enemies) do
-            local dist = dist_trig(e.x - self.x, e.y - self.y)
-            if dist < nearest_dist then nearest_enemy, nearest_dist = e, dist end
+            local d=dist_trig(e.x-fx,e.y-fy)
+            if d<best then best=d ne=e end
         end
-        if nearest_enemy then
-            focus_x, focus_y = (self.x + nearest_enemy.x) * 0.5, (self.y + nearest_enemy.y) * 0.5
-        end
+        if ne then fx=(fx+ne.x)*.5 fy=(fy+ne.y)*.5 end
     end
-
-    -- project focus point into camera offset
-    local screen_x, screen_y = (focus_x - focus_y) * half_tile_width, (focus_x + focus_y) * half_tile_height - self.current_altitude * block_h
-    return 64 - screen_x, 64 - screen_y
+    local sx=(fx-fy)*half_tile_width
+    local sy=(fx+fy)*half_tile_height - self.current_altitude*block_h
+    return 64-sx,64-sy
 end
+
 
 
 
@@ -1414,8 +1391,7 @@ function ship:draw()
     local half_ship_len = ship_len * 0.5
 
     -- tip + rear corners
-    local fx = sx + cos(self.angle) * ship_len
-    local fy = sy + sin(self.angle) * half_ship_len
+    local fx, fy = sx + cos(self.angle) * ship_len, sy + sin(self.angle) * half_ship_len
     local back_angle = self.angle + 0.5
     local p2x = sx + cos(back_angle - 0.15) * ship_len
     local p2y = sy + sin(back_angle - 0.15) * half_ship_len
@@ -1450,10 +1426,6 @@ function ship:draw()
     end
 end
 
-
-function ship:get_speed()
-    return dist_trig(self.vx, self.vy)
-end
 
 function ship:spawn_particles(num, col_override)
     -- spawn exhaust particles at the ship's position
@@ -1494,12 +1466,9 @@ end
 
 function ui_say(t,d,c)
     ui_msg=t
-    ui_vis=0
-    ui_col=c or 7
-    ui_until=d and (time()+d) or 0
-    ui_box_target_h = 26  -- expand when message starts
-    ui_typing_started = false
+    ui_vis,ui_col,ui_until,ui_box_target_h,ui_typing_started= 0, (c or 7), (d and time()+d or 0), 26, false
 end
+
 
 function ui_rset(t,c)
     ui_rmsg=t
@@ -1679,16 +1648,14 @@ function tile.new(x,y)
 end
 
 
-function diamond(sx, sy, c)
-    local dx = half_tile_width
-    for r = 0, half_tile_height do
-        line(sx - dx, sy - r, sx + dx, sy - r, c)
-        if r > 0 then
-            line(sx - dx, sy + r, sx + dx, sy + r, c)
-        end
-        dx -= 2
+function diamond(sx,sy,c)
+    for r=0,half_tile_height do
+        local w=half_tile_width-r*2
+        line(sx-w,sy-r,sx+w,sy-r,c)
+        line(sx-w,sy+r,sx+w,sy+r,c)
     end
 end
+
 
 
 function tile:draw()
