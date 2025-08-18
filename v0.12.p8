@@ -263,50 +263,28 @@ end
 
 
 -- Function to draw sprites with vertical wave animation
-function draw_vertical_wave_sprites(sprite_start, x, y, width_in_sprites, height_in_sprites)
-    -- Calculate wave position (moves from left to right)
-    local wave_speed = 0.5  -- How fast the wave travels
-    local wave_width = 20  -- Width of the wave in pixels
-    local wave_amplitude = 2  -- How far pixels move up/down
-    
-    -- Wave position that loops across the text width
-    local total_width = width_in_sprites * 8
-    local wave_position = (time() * wave_speed * 100) % (total_width + wave_width * 2) - wave_width
-    
-    -- Draw each vertical strip
-    for strip_x = 0, total_width - 1 do
-        -- Calculate distance from wave center
-        local distance_from_wave = abs(strip_x - wave_position)
-        
-        -- Calculate wave offset (only affects pixels near the wave)
-        local wave_offset = 0
-        if distance_from_wave < wave_width then
-            -- Create a smooth bump using cosine
-            local wave_progress = distance_from_wave / wave_width
-            wave_offset = cos(wave_progress * 0.5) * wave_amplitude
-        end
-        
-        -- Use sspr to draw just this vertical strip with offset
-        sspr(
-            sprite_start % 16 * 8 + strip_x,  -- source x in sprite sheet
-            flr(sprite_start / 16) * 8,  -- source y in sprite sheet
-            1,  -- source width (just one column)
-            height_in_sprites * 8,  -- source height
-            x + strip_x,  -- destination x
-            y - wave_offset,  -- destination y (subtract for upward bump)
-            1,  -- destination width
-            height_in_sprites * 8  -- destination height
-        )
+function draw_vertical_wave_sprites(sprite_start, x, y, width_in_sprites)
+    local width_px = width_in_sprites * 8
+    local wave_pos = (time() * 50) % (width_px + 40) - 20  -- 40=2*20
+    for strip_x = 0, width_px - 1 do
+        local distance = abs(strip_x - wave_pos)
+        local wave_offset = (distance < 20) and cos(distance * 0.025) * 2 or 0  -- 0.025=0.5/20
+        sspr((sprite_start % 16) * 8 + strip_x, flr(sprite_start / 16) * 8, 1, 8, x + strip_x, y - wave_offset, 1, 8)
     end
 end
+
+
+
+
+
 
 function draw_startup()
     cls(1)
     draw_world()
 
     -- title
-    draw_vertical_wave_sprites(0,title_x1,10,8,1)
-    draw_vertical_wave_sprites(16,title_x2,20,6,1)
+    draw_vertical_wave_sprites(0, title_x1, 10, 8)
+    draw_vertical_wave_sprites(16, title_x2, 20, 6)
 
     -- ui
     if startup_phase=="menu_select" then
@@ -1005,11 +983,9 @@ function bombing_event:update()
     end
     if now>self.next_bomb then
         local px,py=player_ship.x,player_ship.y
-        local ttf=self.start_z/self.fall_speed -- frames until impact (approx)
-        -- predict where the player will be
-        local lx=px+player_ship.vx*ttf
-        local ly=py+player_ship.vy*ttf
-        add(self.bombs,{x=lx,y=ly,z=self.start_z})
+        local ttf=self.start_z/self.fall_speed
+        add(self.bombs,{x=px+player_ship.vx*ttf,y=py+player_ship.vy*ttf,z=self.start_z})
+
         self.next_bomb=now+0.7+rnd(0.4)
     end
 
@@ -1799,13 +1775,12 @@ tile_manager = {
 
 
 function tile_manager:init()
-    self.tiles = {}
-    self.tile_list = {}
+    self.tiles, self.tile_list = {}, {}
     self.min_x, self.max_x, self.min_y, self.max_y = 0,0,0,0
     self.player_x, self.player_y = self.player_x or 0, self.player_y or 0
-    self.dx_pending, self.dy_pending = 0, 0
     self.view_range_cached = view_range
 end
+
 
 function tile_manager:add_tile(x,y)
     local row=self.tiles[x]
@@ -1879,8 +1854,6 @@ function tile_manager:update_tiles()
     self.min_x,self.max_x,self.min_y,self.max_y=nminx,nmaxx,nminy,nmaxy
     self.dx_pending,self.dy_pending=0,0
 end
-
-
 
 
 function tile_manager:cleanup_cache()
