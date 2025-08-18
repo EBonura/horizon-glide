@@ -1,5 +1,5 @@
 pico-8 cartridge // http://www.pico-8.com
-version 41
+version 43
 __lua__
 -- HORIZON GLIDE
 -- An infinite isometric racing game
@@ -895,7 +895,9 @@ function game_manager.new()
     local self = setmetatable({
         -- just create the object with placeholder values
         idle_duration = 5,
-        event_types = {"combat", "circles"},
+        -- event_types = {"combat", "circles"},
+        event_types = {"bombing"},
+
         
         -- difficulty settings that don't reset
         difficulty_rings_base = 3,
@@ -948,6 +950,8 @@ function game_manager:start_random_event()
             base_time=self.difficulty_base_time,
             recharge_seconds=max(self.difficulty_recharge_min,self.difficulty_recharge_start-r*self.difficulty_recharge_step)
         })
+    elseif event_type=="bombing" then
+        self.current_event=bombing_event.new()
     else
         -- "combat"
         self.current_event=combat_event.new()
@@ -958,21 +962,14 @@ function game_manager:start_random_event()
 end
 
 function game_manager:end_event(success)
-    -- return to idle
-    self.state="idle"
-    self.idle_start_time=time()
+    self.state="idle" self.idle_start_time=time() ui_rmsg=""
 
-    -- clear right slot (timer etc.)
-    ui_rmsg=""
-
-    -- if the player died, don't show message here (let update loop handle it)
-    if (not success) and player_ship and player_ship.dead then
-        -- do nothing - death messages handled in _update
-    else
-        ui_say(success and "event complete!" or "event failed", 3, success and 11 or 8)
+    -- show banner unless death (handled elsewhere)
+    if success or not(player_ship and player_ship.dead) then
+        ui_say(success and "event complete!" or "event failed",3,success and 11 or 8)
     end
 
-    -- difficulty bump on success
+    -- difficulty bump
     if success then
         if self.current_event and self.current_event.is_combat then
             self.difficulty_combat_round+=1
@@ -981,9 +978,78 @@ function game_manager:end_event(success)
         end
     end
 
-    -- clear current event
     self.current_event=nil
 end
+
+
+bombing_event={}
+bombing_event.__index=bombing_event
+
+function bombing_event.new()
+    ui_say("incoming bombs!",3,8) -- start message
+    return setmetatable({
+        bombs={},
+        next_bomb=time(),
+        end_time=time()+10,
+        start_z=64, 
+        fall_speed=3.6
+    },bombing_event)
+end
+
+function bombing_event:update()
+    local now=time()
+    if now>self.end_time then
+        self.completed=true self.success=true
+        game_manager.player_score+=800
+        return
+    end
+    if now>self.next_bomb then
+        local px,py=player_ship.x,player_ship.y
+        local ttf=self.start_z/self.fall_speed -- frames until impact (approx)
+        -- predict where the player will be
+        local lx=px+player_ship.vx*ttf
+        local ly=py+player_ship.vy*ttf
+        add(self.bombs,{x=lx,y=ly,z=self.start_z})
+        self.next_bomb=now+0.7+rnd(0.4)
+    end
+
+    for i=#self.bombs,1,-1 do
+        local b=self.bombs[i]
+        b.z-=self.fall_speed
+        if b.z<=0 then
+        particle_sys:explode(b.x,b.y,0,2) sfx(62)
+        local d=dist_trig(player_ship.x-b.x,player_ship.y-b.y)
+        if d<3 then
+            player_ship.hp-=max(0,30-10*d)
+            if player_ship.hp<=0 then
+            self.completed=true self.success=false
+            player_ship.dead=true
+            end
+        end
+        deli(self.bombs,i)
+        end
+    end
+end
+
+function bombing_event:draw()
+    local t=time()
+    for b in all(self.bombs) do
+        local sx,sy=iso(b.x,b.y)
+        local _,_,_,h=terrain(flr(b.x),flr(b.y))
+        local gy=sy-h*block_h
+        -- ground ring
+        local r=12+sin(t*4)*3
+        for a=0,1,0.06 do
+            pset(sx+cos(a)*r, gy+sin(a)*r*0.5, 8)
+        end
+        -- falling sprite (hardcoded 67)
+        if b.z>0 then
+            spr(67, sx-4, gy-b.z*block_h-4)
+        end
+    end
+end
+
+
 
 -- CIRCLE RACE EVENT
 circle_event = {}
@@ -1914,13 +1980,13 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e00eeee000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e00eee00555555d500eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05ee005d555555d500eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05ee0dd5dddddd5dd0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05e00ddd6ddddd5dd00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05e05d6d6dddd5ddd50eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05005ddd6dddd5dd5500eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e00eeee000000000eeeeeeeee55ee55eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e00eee00555555d500eeeeeeee5555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05ee005d555555d500eeeeee565555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05ee0dd5dddddd5dd0eeeeee565555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05e00ddd6ddddd5dd00eeeee556555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05e05d6d6dddd5ddd50eeeeee5555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05005ddd6dddd5dd5500eeeeee55eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 e00505666d6ddd5ddd5050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 e0650500665555ddd05050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 e065000000000000000050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
