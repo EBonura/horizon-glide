@@ -12,8 +12,9 @@ function iso(x,y) return cam_offset_x+(x-y)*half_tile_width, cam_offset_y+(x+y)*
 function fmt2(n)
     local s=flr(n*100+0.5)
     local neg=s<0 if neg then s=-s end
-    return (neg and "-" or "")..flr(s/100).."."..((s%100<10) and "0" or "")..(s%100)
+    return (neg and "-" or "")..flr(s/100).."."..sub("0"..(s%100),-2)
 end
+
 
 function draw_triangle(l,t,c,m,r,b,col)
     while t>m or m>b do
@@ -233,33 +234,28 @@ end
 
 
 function draw_minimap(x,y)
-    -- sizes + step (each minimap pixel = s world units)
-    local ms,wr=44,32
-    local s=(wr*2)/ms
+    local ms=44
+    local step=64/ms  -- (wr*2)/ms with wr=32
+    local start_wx, start_wy = player_ship.x-32, player_ship.y-32
 
     -- background
     rectfill(x-1,y-1,x+ms,y+ms,0)
 
-    -- world window start at ship - wr, then step by s
-    local ship_x,ship_y=player_ship.x,player_ship.y
-    local start_wx,start_wy=ship_x-wr,ship_y-wr
-
     -- raster terrain
     for py=0,ms-1 do
-        local wy=flr(start_wy+py*s)
-        local wx=start_wx
+        local wy=flr(start_wy+py*step)
         for px=0,ms-1 do
-            pset(x+px,y+py,terrain(flr(wx),wy))
-            wx+=s
+            pset(x+px,y+py, terrain(flr(start_wx+px*step), wy))
         end
     end
 
     -- view box + player dot
     local cx,cy=x+ms/2,y+ms/2
-    local vb=ms*view_range/wr  -- ms*(2*vr)/(2*wr)
+    local vb=ms*view_range/32
     rect(cx-vb/2,cy-vb/2,cx+vb/2,cy+vb/2,7)
-    circfill(cx,cy,1,8) pset(cx,cy,8)
+    circfill(cx,cy,1,8)
 end
+
 
 
 -- Function to draw sprites with vertical wave animation
@@ -272,11 +268,6 @@ function draw_vertical_wave_sprites(sprite_start, x, y, width_in_sprites)
         sspr((sprite_start % 16) * 8 + strip_x, flr(sprite_start / 16) * 8, 1, 8, x + strip_x, y - wave_offset, 1, 8)
     end
 end
-
-
-
-
-
 
 function draw_startup()
     cls(1)
@@ -585,7 +576,7 @@ function draw_segmented_bar(x, y, value, max_value, filled_col, empty_col)
 end
 
 function draw_ui()
-    -- === TOP BAR ===
+    -- top bar
     rectfill(0,0,127,7,0)
     
     -- Always draw the box (expanding/collapsing), positioned 1 pixel from top
@@ -626,7 +617,7 @@ function draw_ui()
         print(ui_rmsg, 127-w-2, 2, ui_rcol)
     end
 
-    -- === BOTTOM HUD (unchanged) ===
+    -- bottom HUD
     rectfill(0, 119, 127, 127, 0)
     
     local health_col = player_ship.hp > 30 and 11 or 8
@@ -874,7 +865,7 @@ function game_manager.new()
         -- just create the object with placeholder values
         idle_duration = 5,
         -- event_types = {"combat", "circles"},
-        event_types = {"bombing"},
+        event_types = {"circles"},
 
         
         -- difficulty settings that don't reset
@@ -1168,7 +1159,7 @@ function circle_event:draw()
     -- direction arrow to current target
     local target=self.circles[self.current_target]
     if target and not target.collected then
-        draw_arrow_to(target.x,target.y,player_ship.x,player_ship.y,8,1.5)
+        draw_arrow_to(target.x, target.y)
     end
 end
 
@@ -1417,61 +1408,48 @@ end
 
 
 
-function ship:get_triangle_points()
+function ship:draw()
     local sx, sy = self:get_screen_pos()
     local ship_len = self.size * 0.8
     local half_ship_len = ship_len * 0.5
-    local fx, fy = sx + cos(self.angle) * ship_len, sy + sin(self.angle) * half_ship_len
+
+    -- tip + rear corners
+    local fx = sx + cos(self.angle) * ship_len
+    local fy = sy + sin(self.angle) * half_ship_len
     local back_angle = self.angle + 0.5
-    return {
-        {fx, fy},
-        {sx + cos(back_angle - 0.15) * ship_len, sy + sin(back_angle - 0.15) * half_ship_len},
-        {sx + cos(back_angle + 0.15) * ship_len, sy + sin(back_angle + 0.15) * half_ship_len}
-    }, sx, sy
-end
+    local p2x = sx + cos(back_angle - 0.15) * ship_len
+    local p2y = sy + sin(back_angle - 0.15) * half_ship_len
+    local p3x = sx + cos(back_angle + 0.15) * ship_len
+    local p3y = sy + sin(back_angle + 0.15) * half_ship_len
 
-
-function ship:draw()
-    local points, sx, sy = self:get_triangle_points()
-    
     -- shadow
     local terrain_height = self:get_terrain_height_at(self.x, self.y)
     local shadow_offset = (self.current_altitude - terrain_height) * block_h
-    draw_triangle(
-        points[1][1], points[1][2] + shadow_offset,
-        points[2][1], points[2][2] + shadow_offset,
-        points[3][1], points[3][2] + shadow_offset,
-        self.shadow_col
-    )
-    
+    draw_triangle(fx, fy + shadow_offset, p2x, p2y + shadow_offset, p3x, p3y + shadow_offset, self.shadow_col)
+
     -- body
-    draw_triangle(
-        points[1][1], points[1][2],
-        points[2][1], points[2][2],
-        points[3][1], points[3][2],
-        self.body_col
-    )
-    
+    draw_triangle(fx, fy, p2x, p2y, p3x, p3y, self.body_col)
+
     -- outline
-    for i=1,3 do
-        local j = i % 3 + 1
-        line(points[i][1], points[i][2], points[j][1], points[j][2], self.outline_col)
-    end
-    
+    line(fx,  fy,  p2x, p2y, self.outline_col)
+    line(p2x, p2y, p3x, p3y, self.outline_col)
+    line(p3x, p3y, fx,  fy,  self.outline_col)
+
     -- thrusters
     if self.is_hovering then
-        local c = sin(time() * 5) > 0 and 10 or 9
-        pset(points[2][1], points[2][2], c)
-        pset(points[3][1], points[3][2], c)
+        local c = (sin(time() * 5) > 0) and 10 or 9
+        pset(p2x, p2y, c)
+        pset(p3x, p3y, c)
     end
-    
-    -- enemy health bar only
+
+    -- enemy health bar
     if self.is_enemy then
         local w = self.hp / self.max_hp * 10
-        rectfill(sx - 5, sy - 10, sx + 5, sy - 9, 5)  -- grey background
-        rectfill(sx - 5, sy - 10, sx - 5 + w, sy - 9, 8)  -- red health
+        rectfill(sx - 5, sy - 10, sx + 5, sy - 9, 5)
+        rectfill(sx - 5, sy - 10, sx - 5 + w, sy - 9, 8)
     end
 end
+
 
 function ship:get_speed()
     return dist_trig(self.vx, self.vy)
@@ -1488,46 +1466,31 @@ function ship:spawn_particles(num, col_override)
 end
 
 function update_projectiles()
-    local new_proj = {}
-    for p in all(projectiles) do
-        p.x += p.vx
-        p.y += p.vy
-        p.life -= 1
-        
-        -- check hits
-        local targets = p.owner.is_enemy and {player_ship} or enemies
+    for i=#projectiles,1,-1 do
+        local p=projectiles[i]
+        p.x+=p.vx p.y+=p.vy p.life-=1
+
+        local targets=p.owner.is_enemy and {player_ship} or enemies
         for t in all(targets) do
-            local dx = t.x - p.x
-            local dy = t.y - p.y
-            if dx*dx + dy*dy < 0.5 then
-                -- apply damage
-                t.hp -= 5
-                p.life = 0
-                
-                -- SMALL EXPLOSION when projectile hits
-                particle_sys:explode(p.x, p.y, -t.current_altitude * block_h, 0.8)
-                
-                -- death check
-                if t.hp <= 0 then
-                    sfx(62)  -- play death sound
-                    
-                    -- BIG EXPLOSION when ship dies
-                    particle_sys:explode(t.x, t.y, -t.current_altitude * block_h, 3)
-                    
+            local dx,dy=t.x-p.x,t.y-p.y
+            if dx*dx+dy*dy<0.5 then
+                t.hp-=5 p.life=0
+                particle_sys:explode(p.x,p.y,-t.current_altitude*block_h,0.8)
+                if t.hp<=0 then
+                    sfx(62)
+                    particle_sys:explode(t.x,t.y,-t.current_altitude*block_h,3)
                     if t.is_enemy then
-                        del(enemies, t)
-                        game_manager.player_score += 200
-                    else
-                        -- player death - restart or something
+                        del(enemies,t)
+                        game_manager.player_score+=200
                     end
                 end
             end
         end
-        
-        if p.life > 0 then add(new_proj, p) end
+
+        if p.life<=0 then deli(projectiles,i) end
     end
-    projectiles = new_proj
 end
+
 
 function ui_say(t,d,c)
     ui_msg=t
@@ -1654,41 +1617,35 @@ end
 function combat_event:draw()
     for e in all(enemies) do
         e:draw()
-        draw_arrow_to(e.x, e.y, player_ship.x, player_ship.y, 8, 1.5)
+        draw_arrow_to(e.x, e.y)
     end
 end
 
 
 
-function draw_arrow_to(target_x,target_y,source_x,source_y,col,orbit_dist)
-    -- vector to target; skip if very close
-    local dx,dy=target_x-source_x,target_y-source_y
+function draw_arrow_to(tx,ty)
+    local px,py=player_ship.x,player_ship.y
+    local dx,dy=tx-px,ty-py
     if dx*dx+dy*dy<4 then return end
 
-    -- orbit point around source (world space)
+    -- orbit point in world space (1.5)
     local a=atan2(dx,dy)
-    local ax,ay=source_x+cos(a)*orbit_dist, source_y+sin(a)*orbit_dist
-
-    -- project to screen
-    local sx,sy=iso(ax,ay)
+    local sx,sy=iso(px+cos(a)*1.5, py+sin(a)*1.5)
     sy-=player_ship.current_altitude*block_h
 
-    -- screen-facing angle from isometric delta
-    local sdx,sdy=(dx-dy)*half_tile_width,(dx+dy)*half_tile_height
-    local sa=atan2(sdx,sdy)
+    -- screen-facing angle from iso delta
+    local sa=atan2((dx-dy)*half_tile_width, (dx+dy)*half_tile_height)
 
-    -- arrow triangle
+    -- arrow triangle (size 6, color 8)
     local s=6
-    local tx,ty=sx+cos(sa)*s, sy+sin(sa)*s*0.5
-    local ba=sa+0.5
-    local bx,by=s*0.7,s*0.35
+    local b=sa+0.5
     draw_triangle(
-        tx,ty,
-        sx+cos(ba-0.18)*bx, sy+sin(ba-0.18)*by,
-        sx+cos(ba+0.18)*bx, sy+sin(ba+0.18)*by,
-        col
-    )
+        sx+cos(sa)*s,       sy+sin(sa)*s*0.5,
+        sx+cos(b-0.18)*s*.7, sy+sin(b-0.18)*s*.35,
+        sx+cos(b+0.18)*s*.7, sy+sin(b+0.18)*s*.35,
+        8)
 end
+
 
 
 -- TILE CLASS
