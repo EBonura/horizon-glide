@@ -290,18 +290,17 @@ end
 function init_menu_select()
     play_panel = panel.new(-50, 90, nil, nil, "play", 11)
     play_panel.selected = true
-    play_panel:set_position(50, 90, false)
+    play_panel:set_position(50, 90)
     
     customize_panel = panel.new(128, 104, nil, nil, "customize", 12)
-    customize_panel:set_position(40, 104, false)
+    customize_panel:set_position(40, 104)
 end
+
 
 function update_customize()
     -- update all panels
-    for p in all(customization_panels) do
-        p:update()
-    end
-    
+    for p in all(customization_panels) do p:update() end
+
     -- navigation
     local d=(btnp(⬆️) and -1) or (btnp(⬇️) and 1) or 0
     if d!=0 then
@@ -311,90 +310,50 @@ function update_customize()
         if customize_cursor>#customization_panels then customize_cursor=1 end
         customization_panels[customize_cursor].selected=true
     end
-    
-    local current_panel = customization_panels[customize_cursor]
-    
-    -- handle start game button
-    if current_panel.is_start then
+
+    local p=customization_panels[customize_cursor]
+    if p.is_start then
+        if btnp(❎) or btnp(🅾️) then view_range=7 init_game() end
+        return
+    end
+
+    local idx=p.option_index
+    if not idx then return end
+    local o=menu_options[idx]
+
+    -- randomize all
+    if o.is_action then
         if btnp(❎) or btnp(🅾️) then
-            view_range = 7
-            init_game()
+            menu_options[1].current=flr(rnd(#menu_options[1].values))+1
+            menu_options[2].current=flr(rnd(#menu_options[2].values))+1
+            current_seed=flr(rnd(9999))
+            for q in all(customization_panels) do
+                if q.option_index then
+                    local oo=menu_options[q.option_index]
+                    q.text=oo.is_action and "random" or ("⬅️ "..oo.name..": "..(oo.is_seed and current_seed or tostr(oo.values[oo.current])).." ➡️")
+                end
+            end
+            regenerate_world_live()
         end
         return
     end
-    
-    -- get the option this panel represents
-    local option_index = current_panel.option_index
-    if not option_index then return end
-    
-    local option = menu_options[option_index]
-    
-    -- store old value to detect changes
-    local old_value = nil
-    if option.is_seed then
-        old_value = current_seed
-    elseif not option.is_action then
-        old_value = option.values[option.current]
-    end
-    
-    -- handle value changes
-    if option.is_action then
-        if btnp(❎) or btnp(🅾️) then
-            -- Randomize ALL options
-            -- Scale (option 1)
-            menu_options[1].current = flr(rnd(#menu_options[1].values)) + 1
-            
-            -- Water (option 2)
-            menu_options[2].current = flr(rnd(#menu_options[2].values)) + 1
-            
-            -- Seed (option 3)
-            current_seed = flr(rnd(9999))
-            
-            -- Update all panel texts (skip actions; show seed correctly)
-            for p in all(customization_panels) do
-                if p.option_index then
-                    local o = menu_options[p.option_index]
-                    if o.is_action then
-                        p.text = "random"
-                    else
-                        p.text = "⬅️ "..o.name..": "..(o.is_seed and current_seed or tostr(o.values[o.current])).." ➡️"
-                    end
-                end
-            end
 
-            
-            regenerate_world_live()
-        end
-    elseif option.is_seed then
-        local changed=false
-        if btnp(⬅️) then current_seed=(current_seed-1)%10000 changed=true end
-        if btnp(➡️) then current_seed=(current_seed+1)%10000 changed=true end
-        if changed then current_panel.text="⬅️ "..option.name..": "..current_seed.." ➡️" end
+    -- left/right adjustments
+    local lr=(btnp(⬅️) and -1) or (btnp(➡️) and 1) or 0
+    if lr==0 then return end
+
+    if o.is_seed then
+        current_seed=(current_seed+lr)%10000
+        p.text="⬅️ "..o.name..": "..current_seed.." ➡️"
     else
-        if btnp(⬅️) then
-            option.current -= 1
-            if option.current < 1 then option.current = #option.values end
-            current_panel.text = "⬅️ " .. option.name .. ": " .. tostr(option.values[option.current]) .. " ➡️"
-        end
-        if btnp(➡️) then
-            option.current += 1
-            if option.current > #option.values then option.current = 1 end
-            current_panel.text = "⬅️ " .. option.name .. ": " .. tostr(option.values[option.current]) .. " ➡️"
-        end
+        o.current+=lr
+        if o.current<1 then o.current=#o.values end
+        if o.current>#o.values then o.current=1 end
+        p.text="⬅️ "..o.name..": "..tostr(o.values[o.current]).." ➡️"
     end
-    
-    -- check if value changed and regenerate world if so
-    local new_value = nil
-    if option.is_seed then
-        new_value = current_seed
-    elseif not option.is_action then
-        new_value = option.values[option.current]
-    end
-    
-    if old_value != nil and new_value != nil and old_value != new_value then
-        regenerate_world_live()
-    end
+    regenerate_world_live()
 end
+
 
 
 
@@ -448,16 +407,17 @@ function enter_customize_mode()
         local col=o.is_action and 5 or 6
         local p=panel.new(-60,y,66,9,text,col)
         p.option_index=i p.anim_delay=panel_index*delay_step
-        p:set_position(6,y,false) add(customization_panels,p)
+        p:set_position(6,y) add(customization_panels,p)
         panel_index+=1
     end
 
     local sb=panel.new(50,128,nil,12,"play",11)
     sb.is_start=true sb.anim_delay=(panel_index+1)*delay_step+4
-    sb:set_position(50,105,false) add(customization_panels,sb)
+    sb:set_position(50,105) add(customization_panels,sb)
 
     customization_panels[1].selected=true
 end
+
 
 
 
@@ -591,13 +551,13 @@ function draw_ui()
         spr(64,2,3,3,3)
         
         -- Mouth animation
-        if ui_msg!="" and ui_typing_started and (time()*8)%2<1 then
+        if ui_msg!="" and ui_box_h>25 and (time()*8)%2<1 then
             spr(99,10,19)
         end
     end
     
     -- Text (only show if typing has started)
-    if ui_msg!="" and ui_typing_started then
+    if ui_msg!="" and ui_box_h>25 then
         print(sub(ui_msg,1,ui_vis),30,2,ui_col)
     end
     
@@ -932,55 +892,56 @@ function bombing_event.new()
 end
 
 function bombing_event:update()
-    local now=time()
-    if now>self.end_time then
-        self.completed=true self.success=true
+    if time()>self.end_time then
+        self.completed,self.success=true,true
         game_manager.player_score+=800
         return
     end
-    if now>self.next_bomb then
-        local px,py=player_ship.x,player_ship.y
-        local ttf=self.start_z/self.fall_speed
-        add(self.bombs,{x=px+player_ship.vx*ttf,y=py+player_ship.vy*ttf,z=self.start_z})
 
-        self.next_bomb=now+0.7+rnd(0.4)
+    if time()>self.next_bomb then
+        add(self.bombs,{
+            x=player_ship.x+player_ship.vx*self.start_z/self.fall_speed,
+            y=player_ship.y+player_ship.vy*self.start_z/self.fall_speed,
+            z=self.start_z
+        })
+        self.next_bomb=time()+0.7+rnd(0.4)
     end
 
     for i=#self.bombs,1,-1 do
         local b=self.bombs[i]
         b.z-=self.fall_speed
         if b.z<=0 then
-        particle_sys:explode(b.x,b.y,0,2) sfx(62)
-        local d=dist_trig(player_ship.x-b.x,player_ship.y-b.y)
-        if d<3 then
-            player_ship.hp-=max(0,30-10*d)
-            if player_ship.hp<=0 then
-            self.completed=true self.success=false
-            player_ship.dead=true
+            particle_sys:explode(b.x,b.y,0,2) sfx(62)
+            local d=dist_trig(player_ship.x-b.x,player_ship.y-b.y)
+            if d<3 then
+                player_ship.hp-=max(0,30-10*d)
+                if player_ship.hp<=0 then
+                    self.completed,self.success=true,false
+                    player_ship.dead=true
+                end
             end
-        end
-        deli(self.bombs,i)
+            deli(self.bombs,i)
         end
     end
 end
 
 function bombing_event:draw()
-    local t=time()
+    local ring_r = 12 + sin(time()*4) * 3
     for b in all(self.bombs) do
-        local sx,sy=iso(b.x,b.y)
-        local _,_,_,h=terrain(flr(b.x),flr(b.y))
-        local gy=sy-h*block_h
+        local sx, sy = iso(b.x, b.y)
+        local _,_,_,h = terrain(flr(b.x), flr(b.y))
+        local gy = sy - h*block_h
+
         -- ground ring
-        local r=12+sin(t*4)*3
         for a=0,1,0.06 do
-            pset(sx+cos(a)*r, gy+sin(a)*r*0.5, 8)
+            pset(sx+cos(a)*ring_r, gy+sin(a)*ring_r*0.5, 8)
         end
-        -- falling sprite (hardcoded 67)
-        if b.z>0 then
-            spr(67, sx-4, gy-b.z*block_h-4)
-        end
+
+        -- falling sprite (bomb)
+        spr(67, sx-4, gy - b.z*block_h - 4)
     end
 end
+
 
 
 
@@ -989,42 +950,31 @@ circle_event = {}
 circle_event.__index = circle_event
 
 function circle_event.new(opt)
-    opt = opt or {}
-    local self = setmetatable({
-        base_time        = opt.base_time or 10,
-        recharge_seconds = opt.recharge_seconds or 4,
-        end_time         = 0,
+    opt=opt or {}
+    local self=setmetatable({
+        base_time=opt.base_time or 10,
+        recharge_seconds=opt.recharge_seconds or 4,
+        circles={},
+        current_target=1
+    },circle_event)
 
-        per_ring_points    = 100,
-        completion_bonus   = 500,
-        total_points_award = 0,
-
-        circles = {},
-        current_target = 1,
-        completed = false,
-        success = false
-    }, circle_event)
-
-    local ring_count = opt.num_rings or 3
-
-    for i = 1, ring_count do
-        local angle = rnd(1)
-        local distance = 8 + rnd(4)
-        local cx = player_ship.x + cos(angle) * distance
-        local cy = player_ship.y + sin(angle) * distance
-        add(self.circles, { x=cx, y=cy, radius=1.2, collected=false })
+    for i=1,(opt.num_rings or 3) do
+        local a=rnd(1)
+        local d=8+rnd(4)
+        add(self.circles,{
+            x=player_ship.x+cos(a)*d,
+            y=player_ship.y+sin(a)*d,
+            radius=1.2,
+            collected=false
+        })
     end
 
-    self.end_time = time() + self.base_time
-    self.total_points_award = #self.circles * self.per_ring_points + self.completion_bonus
-
-    -- Intro message
-    ui_say("reach all "..#self.circles.." circles!", 3, 8)
-    -- Seed right slot immediately (doesn't fight the left message)
-    ui_rset(fmt2(self.base_time).."s", 5)
-
+    self.end_time=time()+self.base_time
+    ui_say("reach all "..#self.circles.." circles!",3,8)
+    ui_rmsg,ui_rcol = fmt2(self.base_time).."s", 5
     return self
 end
+
 
 function circle_event:update()
     local now = time()
@@ -1035,12 +985,12 @@ function circle_event:update()
         self.completed = true
         self.success = false
         ui_say("event failed", 3, 8)
-        ui_rmsg="" -- clear right slot
+        ui_rmsg=""
         return
     end
 
     -- update right slot timer independently of left message
-    ui_rset(fmt2(max(0, time_left)).."s", 5)
+    ui_rmsg,ui_rcol = fmt2(max(0,time_left)).."s", 5
 
     -- rings
     local circle = self.circles[self.current_target]
@@ -1068,16 +1018,17 @@ function circle_event:update()
 
             if self.current_target > #self.circles then
                 -- success
-                self.completed, self.success = true, true
-                local sx, sy = player_ship:get_screen_pos()
-                game_manager.player_score += self.total_points_award
-                add(floating_texts, floating_text.new(sx, sy - 20, "+"..self.total_points_award, 7))
-                ui_say("event complete!", 3, 11)
-                ui_rmsg="" -- clear right slot
+                local award=#self.circles*100+500
+                self.completed,self.success=true,true
+                local sx,sy=player_ship:get_screen_pos()
+                game_manager.player_score+=award
+                add(floating_texts,floating_text.new(sx,sy-20,"+"..award,7))
+                ui_say("event complete!",3,11)
+                ui_rmsg=""
             else
                 -- progress message (right slot keeps updating separately)
-                local remaining = #self.circles - self.current_target + 1
-                ui_say(remaining.." circle"..(remaining>1 and "s" or "").." left", 2, 10)
+                local remaining=#self.circles-self.current_target+1
+                ui_say(remaining.." circle"..(remaining>1 and "s" or "").." left",2,10)
             end
         end
     end
@@ -1431,44 +1382,32 @@ end
 
 function ui_say(t,d,c)
     ui_msg=t
-    ui_vis,ui_col,ui_until,ui_box_target_h,ui_typing_started= 0, (c or 7), (d and time()+d or 0), 26, false
+    ui_vis,ui_col,ui_until,ui_box_target_h= 0,(c or 7),(d and time()+d or 0),26
 end
 
-
-function ui_rset(t,c)
-    ui_rmsg=t
-    ui_rcol=c or 7
-end
 
 function ui_tick()
-    -- Expand/collapse box
+    -- tween box height
     if ui_box_h != ui_box_target_h then
         ui_box_h += (ui_box_target_h - ui_box_h) * 0.2
-        if abs(ui_box_h - ui_box_target_h) < 0.5 then 
-            ui_box_h = ui_box_target_h 
-        end
+        if abs(ui_box_h - ui_box_target_h) < 0.5 then ui_box_h = ui_box_target_h end
     end
-    
-    -- Start typing only when box is expanded
-    if ui_box_h > 25 then
-        ui_typing_started = true
+
+    -- nothing to type yet or box not expanded
+    if ui_msg=="" or ui_box_h<=25 then return end
+
+    -- typewriter
+    if ui_vis < #ui_msg then
+        ui_vis = min(ui_vis + ((#ui_msg > 15) and 3 or 1), #ui_msg)
     end
-    
-    -- Only type if box is ready
-    if ui_msg!="" and ui_typing_started then
-        if ui_vis<#ui_msg then 
-            local speed = (#ui_msg > 15) and 3 or 1
-            ui_vis = min(ui_vis + speed, #ui_msg)
-        end
-        if ui_until>0 and time()>ui_until then
-            ui_msg="" 
-            ui_vis=0
-            ui_until=0
-            ui_box_target_h = 6  -- collapse when message ends
-            ui_typing_started = false
-        end
+
+    -- timeout → clear & collapse
+    if ui_until>0 and time()>ui_until then
+        ui_msg="" ui_vis=0 ui_until=0
+        ui_box_target_h=6
     end
 end
+
 
 
 
