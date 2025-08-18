@@ -169,30 +169,15 @@ function _update()
         end
 
     elseif game_state=="game" then
-        if not player_ship.dead then
+        if player_ship.dead then
+            -- enter new death flow once
+            enter_death()
+        else
             player_ship:update()
             game_manager:update()
             local tx,ty=player_ship:get_camera_target()
             cam_offset_x+= (tx-cam_offset_x)*0.3
             cam_offset_y+= (ty-cam_offset_y)*0.3
-        else
-            -- Simple death message based on how long player has been dead
-            if not player_ship.death_time then
-                player_ship.death_time = time()
-                ui_say("game over", 2, 8)
-            elseif time() - player_ship.death_time > 2.5 then
-                ui_say("❎ to restart", 0, 7)  -- shorter message
-            end
-            
-            if btnp(❎) or btnp(🅾️) then
-                player_ship.dead=false
-                player_ship.death_time=nil  -- reset death timer
-                player_ship.hp=100                
-                game_manager:reset()
-                enemies,projectiles={},{}
-                tile_manager:update_player_position(0, 0)
-                ui_msg=""  -- clear any message
-            end
         end
 
         update_projectiles()
@@ -209,8 +194,10 @@ function _update()
             game_manager.display_score += (diff<10) and diff or step
         end
 
-        -- tick top message
         ui_tick()
+
+    else -- "death"
+        update_death()
     end
 
     particle_sys:update()
@@ -220,15 +207,93 @@ end
 
 
 
+
 function _draw()
-    if game_state == "startup" then
+    if game_state=="startup" then
         draw_startup()
-    elseif game_state == "game" then
+    elseif game_state=="game" then
         draw_game()
+    else -- "death"
+        draw_death()
     end
-    -- performance monitoring
+    -- perf monitor
     printh("mem: "..tostr(stat(0)).." \t| cpu: "..tostr(stat(1)).." \t| fps: "..tostr(stat(7)))
 end
+
+
+-- death flow (slower shutters + brief talk)
+function enter_death()
+    game_state="death"
+    death_t=time()
+    death_cd=10          -- seconds before auto-exit to title
+    death_h=0           -- shutter height
+    death_speed=40      -- px/sec (slower than before)
+    death_closed_at=nil -- set when fully closed
+    ui_msg="" ui_rmsg="" ui_box_target_h=6
+end
+
+function update_death()
+    -- close shutters
+    local el=time()-death_t
+    death_h=min(64,el*death_speed)
+
+    -- mark when black
+    if (not death_closed_at) and death_h>=64 then
+        death_closed_at=time()
+    end
+
+    -- continue to gameplay
+    if btnp(❎) then init_game() return end
+
+    -- timeout -> back to intro
+    if time()-death_t>death_cd then _init() end
+end
+
+function draw_death()
+    cls(1) 
+    draw_world()
+    -- shutters
+    rectfill(0,0,127,death_h,0)
+    rectfill(0,127-death_h,127,127,0)
+
+    if death_h>=64 then
+        cls(0)
+
+        -- positions (centered layout)
+        local cx,cy=64,64
+        local face_x,face_y=cx-12,cy-12  -- 24x24 sprite centered
+        local mouth_x,mouth_y=face_x+8,face_y+16
+
+        -- top: score
+        local s="score: "..flr(game_manager.player_score)
+        print(s,cx-#s*2,20,7)
+
+        -- ensure pink transparent
+        palt(14,true) palt(0,false)
+
+        -- eyes crackle (red->black)
+        local t=time()-death_closed_at
+        if t<2.5 then
+            if rnd()<0.4 then pal(8,0) end
+        else
+            pal(8,0)
+        end
+
+        -- middle: face
+        spr(64,face_x,face_y,3,3)
+        pal() -- reset mapping
+
+        -- bottom: continue
+        local c=flr(max(0,death_cd-(time()-death_t))+0.99)
+        local msg="continue? ("..c..")  ❎"
+        print(msg,cx-#msg*2,92,6)
+    end
+end
+
+
+
+
+
 
 
 
@@ -436,7 +501,7 @@ function init_game()
     particle_sys.list={}
     
     -- game manager
-    game_manager = game_manager.new()
+    game_manager = gm.new()
     
     -- prevent immediate shooting
     player_ship.last_shot_time = time()
@@ -785,47 +850,43 @@ end
 
 
 
--- GAME MANAGER
-game_manager = {}
-game_manager.__index = game_manager
+-- Game Manager
+gm = {}
+gm.__index = gm
 
-function game_manager.new()
-    local self = setmetatable({
-        -- just create the object with placeholder values
-        idle_duration = 5,
-        event_types = {"combat", "circles", "bombing"},
-        
-        -- difficulty settings that don't reset
-        difficulty_rings_base = 3,
-        difficulty_rings_step = 1,
-        difficulty_base_time = 6,
-        difficulty_recharge_start = 2,
-        difficulty_recharge_step = 0.2,
-        difficulty_recharge_min = 1,
-    }, game_manager)
-    
-    self:reset()  -- initialize all the resettable fields
+function gm.new()
+    local self=setmetatable({
+        idle_duration=5,
+        event_types={"combat","circles","bombing"},
+
+        difficulty_rings_base=3,
+        difficulty_rings_step=1,
+        difficulty_base_time=5,
+        difficulty_recharge_start=2,
+        difficulty_recharge_step=0.2,
+        difficulty_recharge_min=0.5,
+        difficulty_level=0
+    },gm)
+    self:reset()
     return self
 end
 
-function game_manager:reset()
-    self.state = "idle"
-    self.current_event = nil
-    self.idle_start_time = time()
-    self.next_event_index = 1
-    self.difficulty_circle_round = 0
-    self.difficulty_combat_round = 0
-    self.player_score = 0
-    self.display_score = 0
+function gm:reset()
+    self.state="idle"
+    self.current_event=nil
+    self.idle_start_time=time()
+    self.next_event_index=1
+    self.player_score=0
+    self.display_score=0
+    self.difficulty_level=0
 end
 
-function game_manager:update()
-    -- state machine
+function gm:update()
     if self.state=="idle" then
         if time()-self.idle_start_time>=self.idle_duration then
             self:start_random_event()
         end
-    else -- "active"
+    else
         local e=self.current_event
         if e then
             e:update()
@@ -834,60 +895,42 @@ function game_manager:update()
     end
 end
 
-function game_manager:start_random_event()
-    -- pick event type and advance pointer
+function gm:start_random_event()
     local event_type=self.event_types[self.next_event_index]
     self.next_event_index=self.next_event_index%#self.event_types+1
-
     if event_type=="circles" then
-        local r=self.difficulty_circle_round
-        self.current_event=circle_event.new({
-            num_rings=self.difficulty_rings_base+r*self.difficulty_rings_step,
-            base_time=self.difficulty_base_time,
-            recharge_seconds=max(self.difficulty_recharge_min,self.difficulty_recharge_start-r*self.difficulty_recharge_step)
-        })
+        self.current_event=circle_event.new()
     elseif event_type=="bombing" then
         self.current_event=bombing_event.new()
     else
-        -- "combat"
         self.current_event=combat_event.new()
     end
-
-    -- activate
     self.state="active"
 end
 
-function game_manager:end_event(success)
+function gm:end_event(success)
     self.state="idle" self.idle_start_time=time() ui_rmsg=""
-
-    -- show banner unless death (handled elsewhere)
     if success or not(player_ship and player_ship.dead) then
         ui_say(success and "event complete!" or "event failed",3,success and 11 or 8)
     end
-
-    -- difficulty bump
-    if success then
-        if self.current_event and self.current_event.is_combat then
-            self.difficulty_combat_round+=1
-        else
-            self.difficulty_circle_round+=1
-        end
+    if success and self.next_event_index==1 then
+        self.difficulty_level+=1
     end
-
     self.current_event=nil
 end
+
 
 
 bombing_event={}
 bombing_event.__index=bombing_event
 
 function bombing_event.new()
-    ui_say("incoming bombs!",3,8) -- start message
+    ui_say("incoming bombs!",3,8)
     return setmetatable({
         bombs={},
         next_bomb=time(),
         end_time=time()+10,
-        start_z=64, 
+        start_z=64,
         fall_speed=3.6
     },bombing_event)
 end
@@ -905,7 +948,7 @@ function bombing_event:update()
             y=player_ship.y+player_ship.vy*self.start_z/self.fall_speed,
             z=self.start_z
         })
-        self.next_bomb=time()+0.7+rnd(0.4)
+        self.next_bomb=time()+max(0.25,0.7-0.05*game_manager.difficulty_level)+rnd(0.3)
     end
 
     for i=#self.bombs,1,-1 do
@@ -925,6 +968,7 @@ function bombing_event:update()
         end
     end
 end
+
 
 function bombing_event:draw()
     local ring_r = 12 + sin(time()*4) * 3
@@ -950,31 +994,27 @@ end
 circle_event = {}
 circle_event.__index = circle_event
 
-function circle_event.new(opt)
-    opt=opt or {}
+function circle_event.new()
+    local r=game_manager.difficulty_level
     local self=setmetatable({
-        base_time=opt.base_time or 10,
-        recharge_seconds=opt.recharge_seconds or 4,
+        base_time=game_manager.difficulty_base_time,
+        recharge_seconds=max(game_manager.difficulty_recharge_min,game_manager.difficulty_recharge_start-r*game_manager.difficulty_recharge_step),
         circles={},
         current_target=1
     },circle_event)
 
-    for i=1,(opt.num_rings or 3) do
-        local a=rnd(1)
-        local d=8+rnd(4)
-        add(self.circles,{
-            x=player_ship.x+cos(a)*d,
-            y=player_ship.y+sin(a)*d,
-            radius=1.5,
-            collected=false
-        })
+    local n=game_manager.difficulty_rings_base+r*game_manager.difficulty_rings_step
+    for i=1,n do
+        local a,d=rnd(1),8+rnd(4)
+        add(self.circles,{x=player_ship.x+cos(a)*d,y=player_ship.y+sin(a)*d,radius=1.5,collected=false})
     end
 
     self.end_time=time()+self.base_time
     ui_say("collect "..#self.circles.." circles!",3,8)
-    ui_rmsg = fmt2(self.base_time).."s"
+    ui_rmsg=fmt2(self.base_time).."s"
     return self
 end
+
 
 
 function circle_event:update()
@@ -1115,7 +1155,7 @@ function ship.new(start_x, start_y, is_enemy)
         -- combat
         is_enemy = is_enemy,
         max_hp = is_enemy and 50 or 100,
-        hp = is_enemy and 50 or 100,
+        hp = is_enemy and 50 or 1,
         target = nil,
         ai_phase = is_enemy and rnd(6) or 0,
     }, ship)
@@ -1413,33 +1453,22 @@ combat_event = {}
 combat_event.__index = combat_event
 
 function combat_event.new()
-    local self = setmetatable({
-        completed = false,
-        success = false,
-        start_count = 0,
-        switched = false,
-        is_combat = true,
-        last_msg = nil   -- track last message shown
-    }, combat_event)
-
-    -- top message
+    local self=setmetatable({completed=false,success=false,start_count=0,is_combat=true,last_msg=nil},combat_event)
     ui_say("enemy wave incoming!",3,8)
 
-    local num_enemies = min(1 + game_manager.difficulty_combat_round, 6)
-    
-    enemies = {}
-    for i=1,num_enemies do
-        local a, d = rnd(1), 10 + rnd(5)
-        local ex = player_ship.x + cos(a) * d
-        local ey = player_ship.y + sin(a) * d
-        local e  = ship.new(ex, ey, true)
-        e.hp = 50
-        add(enemies, e)
+    local n=min(1+game_manager.difficulty_level,6)
+    enemies={}
+    for i=1,n do
+        local a,d=rnd(1),10+rnd(5)
+        local ex=player_ship.x+cos(a)*d
+        local ey=player_ship.y+sin(a)*d
+        local e=ship.new(ex,ey,true) e.hp=50
+        add(enemies,e)
     end
-
-    self.start_count = #enemies
+    self.start_count=#enemies
     return self
 end
+
 
 
 function combat_event:update()
