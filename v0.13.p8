@@ -798,10 +798,10 @@ function game_manager.new()
         -- difficulty settings that don't reset
         difficulty_rings_base = 3,
         difficulty_rings_step = 1,
-        difficulty_base_time = 5,
+        difficulty_base_time = 6,
         difficulty_recharge_start = 2,
         difficulty_recharge_step = 0.2,
-        difficulty_recharge_min = 0.5,
+        difficulty_recharge_min = 1,
     }, game_manager)
     
     self:reset()  -- initialize all the resettable fields
@@ -965,13 +965,13 @@ function circle_event.new(opt)
         add(self.circles,{
             x=player_ship.x+cos(a)*d,
             y=player_ship.y+sin(a)*d,
-            radius=1.2,
+            radius=1.5,
             collected=false
         })
     end
 
     self.end_time=time()+self.base_time
-    ui_say("reach all "..#self.circles.." circles!",3,8)
+    ui_say("collect "..#self.circles.." circles!",3,8)
     ui_rmsg = fmt2(self.base_time).."s"
     return self
 end
@@ -1233,7 +1233,7 @@ function ship:update()
     local new_terrain=self:get_terrain_height_at(self.x,self.y)
     local height_diff=new_terrain-self:get_terrain_height_at(self.x-self.vx,self.y-self.vy)
     if self.is_hovering and height_diff>0 and speed>0.01 then
-        self.vz=height_diff*self.ramp_boost*speed*10
+        self.vz=height_diff*self.ramp_boost*speed*15
         self.is_hovering=false
     end
 
@@ -1425,7 +1425,7 @@ function combat_event.new()
     -- top message
     ui_say("enemy wave incoming!",3,8)
 
-    local num_enemies = min(2 + game_manager.difficulty_combat_round, 6)
+    local num_enemies = min(1 + game_manager.difficulty_combat_round, 6)
     
     enemies = {}
     for i=1,num_enemies do
