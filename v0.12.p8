@@ -115,7 +115,7 @@ function _init()
 
     -- top/right UI (no ui_typing_started needed)
     ui_msg,ui_vis,ui_until,ui_col="",0,0,7
-    ui_rmsg,ui_rcol="",7
+    ui_rmsg=""
     ui_box_h,ui_box_target_h=6,6
 end
 
@@ -274,17 +274,18 @@ function draw_startup()
     draw_world()
 
     -- title
-    draw_vertical_wave_sprites(0, title_x1, 10, 8)
-    draw_vertical_wave_sprites(16, title_x2, 20, 6)
+    draw_vertical_wave_sprites(0,  title_x1,10,8)
+    draw_vertical_wave_sprites(16, title_x2,20,6)
 
     -- ui
     if startup_phase=="menu_select" then
         play_panel:draw() customize_panel:draw()
-    elseif startup_phase=="customize" then
+    else
         for p in all(customization_panels) do p:draw() end
         draw_minimap(80,32)
     end
 end
+
 
 
 function init_menu_select()
@@ -564,7 +565,7 @@ function draw_ui()
     -- Right slot stays the same
     if ui_rmsg!="" then
         local w=#ui_rmsg*4
-        print(ui_rmsg, 127-w-2, 2, ui_rcol)
+        print(ui_rmsg, 127-w-2, 2, 5)
     end
 
     -- bottom HUD
@@ -971,7 +972,7 @@ function circle_event.new(opt)
 
     self.end_time=time()+self.base_time
     ui_say("reach all "..#self.circles.." circles!",3,8)
-    ui_rmsg,ui_rcol = fmt2(self.base_time).."s", 5
+    ui_rmsg = fmt2(self.base_time).."s"
     return self
 end
 
@@ -990,7 +991,7 @@ function circle_event:update()
     end
 
     -- update right slot timer independently of left message
-    ui_rmsg,ui_rcol = fmt2(max(0,time_left)).."s", 5
+    ui_rmsg = fmt2(max(0, time_left)).."s"
 
     -- rings
     local circle = self.circles[self.current_target]
@@ -1122,18 +1123,16 @@ end
 
 
 function ship:ai_update()
-    if not player_ship then return end
-
     -- base vector to player
     local dx,dy=player_ship.x-self.x,player_ship.y-self.y
     local dist=dist_trig(dx,dy)
 
-    -- chase/flee mode (flee at 40% health)
-    local mode=(self.hp/self.max_hp<=0.3 and dist>15) or 
-            (self.hp/self.max_hp>0.3 and (dist>20 or ((time()+self.ai_phase)%6)<3))
+    -- chase/flee mode (health ratio check once)
+    local q=self.hp/self.max_hp
+    local mode=(q<=0.3 and dist>15) or (q>0.3 and (dist>20 or ((time()+self.ai_phase)%6)<3))
     if not mode then dx,dy=-dx,-dy end
 
-    -- separation from other enemies
+    -- separation
     for e in all(enemies) do
         if e~=self then
             local ex,ey=self.x-e.x,self.y-e.y
@@ -1142,18 +1141,16 @@ function ship:ai_update()
         end
     end
 
-    -- apply movement toward chosen steer vector
+    -- steer toward chosen vector
     local m=dist_trig(dx,dy)
-    if m>0.1 then
-        local a=self.accel/m
-        self.vx+=dx*a self.vy+=dy*a
-    end
+    if m>0.1 then self.vx+=dx*self.accel/m self.vy+=dy*self.accel/m end
 
-    -- chase fire: target update + cooldown
+    -- fire
     if mode and self:update_targeting() and (not self.last_shot_time or time()-self.last_shot_time>self.fire_rate) then
         self:fire_at() self.last_shot_time=time()
     end
 end
+
 
 
 function ship:fire_at()
@@ -1544,7 +1541,7 @@ function tile:draw()
     local sx,sy=cam_offset_x+self.base_sx,cam_offset_y+self.base_sy
     local lb,rb=cam_offset_x+self.lb,cam_offset_x+self.rb
 
-    -- water: top diamond + single ripple (opposite blue)
+    -- water
     if self.height<=0 then
         diamond(sx,sy,self.top_col)
         local yb=flr(sy+self.r+sin(time()+(self.x+self.y)/8))
@@ -1552,19 +1549,18 @@ function tile:draw()
         return
     end
 
-    -- land: faces then top
+    -- land: faces then top (no outer check)
     local hp=self.hp
     local sy2=sy-hp
     local by=cam_offset_y+self.by-hp
     local m=self.face
-    if (m&1)>0 or (m&2)>0 then
-        for i=0,hp do
-            if (m&1)>0 then line(lb,sy2+i,sx,by+i,self.side_col) end
-            if (m&2)>0 then line(rb,sy2+i,sx,by+i,self.dark_col) end
-        end
+    for i=0,hp do
+        if (m&1)>0 then line(lb,sy2+i,sx,by+i,self.side_col) end
+        if (m&2)>0 then line(rb,sy2+i,sx,by+i,self.dark_col) end
     end
     diamond(sx,sy2,self.top_col)
 end
+
 
 
 
