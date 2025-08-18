@@ -303,17 +303,13 @@ function update_customize()
     end
     
     -- navigation
-    if btnp(⬆️) then
-        customization_panels[customize_cursor].selected = false
-        customize_cursor -= 1
-        if customize_cursor < 1 then customize_cursor = #customization_panels end
-        customization_panels[customize_cursor].selected = true
-    end
-    if btnp(⬇️) then
-        customization_panels[customize_cursor].selected = false
-        customize_cursor += 1
-        if customize_cursor > #customization_panels then customize_cursor = 1 end
-        customization_panels[customize_cursor].selected = true
+    local d=(btnp(⬆️) and -1) or (btnp(⬇️) and 1) or 0
+    if d!=0 then
+        customization_panels[customize_cursor].selected=false
+        customize_cursor+=d
+        if customize_cursor<1 then customize_cursor=#customization_panels end
+        if customize_cursor>#customization_panels then customize_cursor=1 end
+        customization_panels[customize_cursor].selected=true
     end
     
     local current_panel = customization_panels[customize_cursor]
@@ -446,20 +442,15 @@ function enter_customize_mode()
     local panel_index=0
 
     for i=1,#menu_options do
-        local option=menu_options[i]
-        if not option.is_action then
-            local y=y_start+panel_index*y_spacing
-            local p=panel.new(-60,y,66,9,"⬅️ "..option.name..": "..(option.is_seed and current_seed or tostr(option.values[option.current])).." ➡️",6)
-            p.option_index=i p.anim_delay=panel_index*delay_step
-            p:set_position(6,y,false) add(customization_panels,p)
-            panel_index+=1
-        end
+        local o=menu_options[i]
+        local y=y_start+panel_index*y_spacing
+        local text=o.is_action and "random" or ("⬅️ "..o.name..": "..(o.is_seed and current_seed or tostr(o.values[o.current])).." ➡️")
+        local col=o.is_action and 5 or 6
+        local p=panel.new(-60,y,66,9,text,col)
+        p.option_index=i p.anim_delay=panel_index*delay_step
+        p:set_position(6,y,false) add(customization_panels,p)
+        panel_index+=1
     end
-
-    local ry=y_start+3*y_spacing
-    local rp=panel.new(-60,ry,66,9,"random",5)
-    rp.option_index=4 rp.anim_delay=panel_index*delay_step
-    rp:set_position(6,ry,false) add(customization_panels,rp)
 
     local sb=panel.new(50,128,nil,12,"play",11)
     sb.is_start=true sb.anim_delay=(panel_index+1)*delay_step+4
@@ -467,6 +458,7 @@ function enter_customize_mode()
 
     customization_panels[1].selected=true
 end
+
 
 
 
@@ -480,7 +472,7 @@ function init_game()
     floating_texts = {}
 
     -- reset particle system
-    particle_sys:reset()
+    particle_sys.list={}
     
     -- game manager
     game_manager = game_manager.new()
@@ -518,9 +510,7 @@ function draw_world()
                 local px,py=iso(wx,wy)
                 if lx then line(lx,ly,px,py,(h<=-2) and 12 or 7) end
                 lx,ly=px,py
-            else
-                lx,ly=nil,nil -- break at land edges
-            end
+            else lx=nil end
         end
         if s.life<=0 then deli(ws,i) end
     end
@@ -656,33 +646,29 @@ function floating_text:update()
 end
 
 function floating_text:draw()
-    -- Draw black background box
-    local text_width = #self.text * 4
-    rectfill(self.x - text_width/2 - 1, self.y - 1, self.x + text_width/2, self.y + 5, 0)
-
-    -- Draw white text
-    print(self.text, self.x - text_width/2, self.y, self.col)
+    local w=#self.text*4
+    local x1=self.x-w/2
+    local y1=self.y
+    rectfill(x1-1,y1-1,x1+w,y1+5,0)
+    print(self.text,x1,y1,self.col)
 end
 
 -- PANEL CLASS
 panel = {}
 panel.__index = panel
 
-function panel.new(x, y, w, h, text, col, life)
+function panel.new(x,y,w,h,text,col)
     return setmetatable({
-        x = x,
-        y = y,
-        w = w or (#text*4+12),
-        h = h or 10,
-        text = text,
-        col = col or 5,
-        selected = false,
-        expand = 0,
-        target_x = x,
-        target_y = y,
-        life = life or -1,  -- -1 means infinite
-        anim_delay = 0,
-    }, panel)
+        x=x,y=y,
+        w=w or (#text*4+12),
+        h=h or 10,
+        text=text,
+        col=col or 5,
+        selected=false,
+        expand=0,
+        target_x=x, target_y=y,
+        anim_delay=0,
+    },panel)
 end
 
 function panel:set_position(x,y,instant)
@@ -703,12 +689,10 @@ function panel:update()
     end
 
     -- expand/contract
-    self.expand = self.selected and min(self.expand+1,3) or max(self.expand-1,0)
-
-    -- life countdown
-    if self.life>0 then self.life-=1 return self.life>0 end
-    return self.life!=0
+    self.expand=self.selected and min(self.expand+1,3) or max(self.expand-1,0)
+    return true
 end
+
 
 
 -- draw function remains the same
@@ -731,12 +715,8 @@ function panel:draw()
 end
 
 
--- === UNIFIED PARTICLE SYSTEM (all in world coords) ===
+-- PARTICLE SYSTEM
 particle_sys={list={}}
-
-function particle_sys:reset()
-    self.list={}
-end
 
 -- kind: 0=smoke, 1=blast (all use world coords)
 local function make_particle(x,y,z,vx,vy,size,life,kind,col)
@@ -769,7 +749,7 @@ function particle_sys:spawn(x,y,z,col,count)
     end
 end
 
--- EXPLOSIONS (now in world space)
+-- EXPLOSIONS
 function particle_sys:explode(wx,wy,z,scale)
     local function add_group(radius,speed,size_px,life,count)
         for i=1,count do
@@ -852,9 +832,7 @@ function game_manager.new()
     local self = setmetatable({
         -- just create the object with placeholder values
         idle_duration = 5,
-        -- event_types = {"combat", "circles"},
-        event_types = {"combat"},
-
+        event_types = {"combat", "circles", "bombing"},
         
         -- difficulty settings that don't reset
         difficulty_rings_base = 3,
@@ -1276,89 +1254,76 @@ end
 
 
 function ship:update()
-    -- AI or player input
+    -- AI or player
     if self.is_enemy then
         self:ai_update()
     else
-        tile_manager:update_player_position(self.x, self.y)
+        tile_manager:update_player_position(self.x,self.y)
 
-        -- player input
-        local ax = self.accel
-        local input_x = (btn(➡️) and ax or 0) + (btn(⬅️) and -ax or 0) + (btn(⬇️) and ax or 0) + (btn(⬆️) and -ax or 0)
-        local input_y = (btn(➡️) and -ax or 0) + (btn(⬅️) and  ax or 0) + (btn(⬇️) and  ax or 0) + (btn(⬆️) and -ax or 0)
-        self.vx += input_x * 0.707
-        self.vy += input_y * 0.707
+        -- player input (iso mapping via rx/ry)
+        local rx=(btn(➡️) and 1 or 0)-(btn(⬅️) and 1 or 0)
+        local ry=(btn(⬇️) and 1 or 0)-(btn(⬆️) and 1 or 0)
+        self.vx+=(rx+ry)*self.accel*0.707
+        self.vy+=(-rx+ry)*self.accel*0.707
 
-        -- targeting and shooting
+        -- targeting & fire
         self:update_targeting()
-        if btn(❎) and (not self.last_shot_time or time() - self.last_shot_time > self.fire_rate) then
+        if btn(❎) and (not self.last_shot_time or time()-self.last_shot_time>self.fire_rate) then
             self:fire_at()
-            self.last_shot_time = time()
+            self.last_shot_time=time()
         end
     end
 
-    -- movement and speed clamp
-    self.vx *= self.friction
-    self.vy *= self.friction
-    local speed = dist_trig(self.vx, self.vy)
-    if speed > self.max_speed then
-        local s = self.max_speed / speed
-        self.vx *= s
-        self.vy *= s
-    end
-    self.x += self.vx
-    self.y += self.vy
+    -- movement & clamp
+    self.vx*=self.friction self.vy*=self.friction
+    local speed=dist_trig(self.vx,self.vy)
+    local s=(speed>self.max_speed) and (self.max_speed/speed) or 1
+    self.vx*=s self.vy*=s
+    self.x+=self.vx self.y+=self.vy
 
-    -- terrain and ramp launch
-    local new_terrain = self:get_terrain_height_at(self.x, self.y)
-    local height_diff = new_terrain - self:get_terrain_height_at(self.x - self.vx, self.y - self.vy)
-    if self.is_hovering and height_diff > 0 and speed > 0.01 then
-        self.vz = height_diff * self.ramp_boost * speed * 10
-        self.is_hovering = false
+    -- terrain ramp launch
+    local new_terrain=self:get_terrain_height_at(self.x,self.y)
+    local height_diff=new_terrain-self:get_terrain_height_at(self.x-self.vx,self.y-self.vy)
+    if self.is_hovering and height_diff>0 and speed>0.01 then
+        self.vz=height_diff*self.ramp_boost*speed*10
+        self.is_hovering=false
     end
 
     -- altitude physics
-    local target_altitude = new_terrain + self.hover_height
+    local target_altitude=new_terrain+self.hover_height
     if self.is_hovering then
-        self.current_altitude = target_altitude
-        self.vz = 0
+        self.current_altitude=target_altitude self.vz=0
     else
-        self.current_altitude += self.vz
-        self.vz -= self.gravity
-        if self.current_altitude <= target_altitude then
-            self.current_altitude = target_altitude
-            self.vz = 0
-            self.is_hovering = true
+        self.current_altitude+=self.vz
+        self.vz-=self.gravity
+        if self.current_altitude<=target_altitude then
+            self.current_altitude=target_altitude self.vz=0 self.is_hovering=true
         end
-        self.vz *= 0.98
+        self.vz*=0.98
     end
 
     -- exhaust particles
-    if self.is_hovering and speed > 0.01 then
-        self.particle_timer += 1
-        local spawn_rate = max(1, 5 - flr(speed * 10))
-        if self.particle_timer >= spawn_rate then
-            self.particle_timer = 0
-            self:spawn_particles(1 + flr(speed * 5))
+    if self.is_hovering and speed>0.01 then
+        self.particle_timer+=1
+        local spawn_rate=max(1,5-flr(speed*10))
+        if self.particle_timer>=spawn_rate then
+            self.particle_timer=0
+            self:spawn_particles(1+flr(speed*5))
         end
     else
-        self.particle_timer = 0
+        self.particle_timer=0
     end
 
-    -- update facing
-    if abs(self.vx) > 0.01 or abs(self.vy) > 0.01 then
-        self.angle = atan2(self.vx - self.vy, (self.vx + self.vy) * 0.5)
-    end
+    -- facing (always compute; cheaper than guarding)
+    self.angle=atan2(self.vx-self.vy,(self.vx+self.vy)*0.5)
 
     -- water rings
-    if self.is_hovering and speed > 0.2 then
-        self.st = (self.st or 0) + 1
-        if self.st > 4 then
-            add(ws, {x = self.x, y = self.y, r = 0, life = 28})
-            self.st = 0
-        end
+    if self.is_hovering and speed>0.2 then
+        self.st=(self.st or 0)+1
+        if self.st>4 then add(ws,{x=self.x,y=self.y,r=0,life=28}) self.st=0 end
     end
 end
+
 
 
 function ship:get_screen_pos()
@@ -1542,45 +1507,27 @@ end
 
 
 function combat_event:update()
-    -- update enemies
-    for e in all(enemies) do
-        e:update()
-    end
+    for e in all(enemies) do e:update() end
+    local remaining=#enemies
 
-    local remaining = #enemies
-
-    -- wave cleared
-    if remaining == 0 then
-        self.completed, self.success = true, true
-        game_manager.player_score += 1000
+    if remaining==0 then
+        self.completed,self.success=true,true
+        game_manager.player_score+=1000
         return
     end
 
-    -- after first kill, show remaining (only when it changes)
-    if (not self.switched) and remaining < self.start_count then
-        self.switched = true
-        self.last_msg = nil
-    end
-    if self.switched then
-        local msg = (remaining==1) and "1 enemy left" or (remaining.." enemies left")
-        if self.last_msg ~= msg then
-            ui_say(msg, 3, 8)
-            self.last_msg = msg
-        end
+    -- show remaining only after first kill; avoid repeats
+    if remaining<self.start_count then
+        local msg=(remaining==1) and "1 enemy left" or (remaining.." enemies left")
+        if self.last_msg!=msg then ui_say(msg,3,8) self.last_msg=msg end
     end
 
-    -- player death: mark completed/failed; end_event will show messages
-    if player_ship.hp <= 0 then
-        self.completed, self.success = true, false
-        player_ship.dead = true
-        ui_rmsg = "" -- clear right slot (timer etc.)
-        return
+    if player_ship.hp<=0 then
+        self.completed,self.success=true,false
+        player_ship.dead=true
+        ui_rmsg=""
     end
 end
-
-
-
-
 
 
 function combat_event:draw()
@@ -1589,7 +1536,6 @@ function combat_event:draw()
         draw_arrow_to(e.x, e.y)
     end
 end
-
 
 
 function draw_arrow_to(tx,ty)
@@ -1622,30 +1568,27 @@ tile = {}
 tile.__index = tile
 
 function tile.new(x,y)
-    local top, side, dark, h = terrain(x,y)
-    local bsx, bsy=(x-y)*half_tile_width, (x+y)*half_tile_height
-    local hp=(h>0) and (h*block_h) or 0
+    local top,side,dark,h=terrain(x,y)
+    local bsx,bsy=(x-y)*half_tile_width,(x+y)*half_tile_height
+    local hp=(h>0) and h*block_h or 0
 
-    -- one-time neighbor checks
-    local _,_,_,h_s = terrain(x,   y+1)
-    local _,_,_,h_e = terrain(x+1, y  )
-    local _,_,_,h_n = terrain(x,   y-1)
-    local _,_,_,h_w = terrain(x-1, y  )
-
-    local face=((h_s<h) and 1 or 0) + ((h_e<h) and 2 or 0)
-    local out =((h_n<=h) and 1 or 0) + ((h_w<=h) and 2 or 0)
+    -- only need south/east for face shading
+    local _,_,_,hs=terrain(x,  y+1)
+    local _,_,_,he=terrain(x+1,y)
+    local face=((hs<h) and 1 or 0)+((he<h) and 2 or 0)
 
     return setmetatable({
         x=x,y=y,height=h,
-        top_col=top, side_col=side, dark_col=dark,
-        base_sx=bsx, base_sy=bsy,
-        hp=hp, face=face, out=out,
+        top_col=top,side_col=side,dark_col=dark,
+        base_sx=bsx,base_sy=bsy,
+        hp=hp,face=face,
         r=(x+y)&1,
         lb=bsx-half_tile_width,
         rb=bsx+half_tile_width,
         by=bsy+half_tile_height
-    }, tile)
+    },tile)
 end
+
 
 
 function diamond(sx,sy,c)
@@ -1834,12 +1777,10 @@ end
 function generate_permutation(seed)
     srand(seed)
     local p={}
-    for i=0,127 do
-        local v=flr(rnd(128))
-        p[i],p[i+128]=v,v
-    end
+    for i=0,255 do p[i]=flr(rnd(128)) end
     return p
 end
+
 
 
 
