@@ -221,77 +221,107 @@ function _draw()
 end
 
 
--- death flow (slower shutters + brief talk)
+
+-- death flow (digital break effect)
 function enter_death()
     game_state="death"
     death_t=time()
-    death_cd=10          -- seconds before auto-exit to title
-    death_h=0           -- shutter height
-    death_speed=40      -- px/sec (slower than before)
-    death_closed_at=nil -- set when fully closed
+    death_cd=10
+    death_phase=0          -- 0=digital break, 1=fully black
+    death_closed_at=nil
     ui_msg="" ui_rmsg="" ui_box_target_h=6
 end
 
 function update_death()
-    -- close shutters
     local el=time()-death_t
-    death_h=min(64,el*death_speed)
-
-    -- mark when black
-    if (not death_closed_at) and death_h>=64 then
+    
+    -- transition to black screen phase after 2.5 seconds
+    if death_phase==0 and el>2.5 then 
+        death_phase=1
         death_closed_at=time()
     end
-
-    -- continue to gameplay
+    
     if btnp(❎) then init_game() return end
-
-    -- timeout -> back to intro
     if time()-death_t>death_cd then _init() end
 end
 
 function draw_death()
-    cls(1) 
-    draw_world()
-    -- shutters
-    rectfill(0,0,127,death_h,0)
-    rectfill(0,127-death_h,127,127,0)
-
-    if death_h>=64 then
-        cls(0)
-
-        -- positions (centered layout)
-        local cx,cy=64,64
-        local face_x,face_y=cx-12,cy-12  -- 24x24 sprite centered
-        local mouth_x,mouth_y=face_x+8,face_y+16
-
-        -- top: score
-        local s="score: "..flr(game_manager.player_score)
-        print(s,cx-#s*2,20,7)
-
-        -- ensure pink transparent
-        palt(14,true) palt(0,false)
-
-        -- eyes crackle (red->black)
-        local t=time()-death_closed_at
-        if t<2.5 then
-            if rnd()<0.4 then pal(8,0) end
-        else
-            pal(8,0)
+    local el=time()-death_t
+    
+    -- digital break effect phase
+    if death_phase==0 then
+        -- draw the game world first
+        cls(1) 
+        draw_world()
+        -- horizontal tears
+        if el > 0.2 then
+            for i=1,el*5 do
+                local y = flr(rnd(128))
+                local h = 1 + flr(rnd(3))
+                local shift = flr(rnd(20)) - 10
+                
+                -- shift this horizontal band
+                for dy=0,h-1 do
+                    if y+dy < 128 then
+                        for x=0,127 do
+                            local src_x = (x - shift) % 128
+                            local c = pget(src_x, y+dy)
+                            pset(x, y+dy, c)
+                        end
+                    end
+                end
+            end
         end
+        
+        -- digital artifacts (blocks)
+        if el > 0.8 then
+            local blocks = (el - 0.8) * 50
+            for i=1,blocks do
+                local x = flr(rnd(16)) * 8
+                local y = flr(rnd(16)) * 8
+                local c = rnd() < el/3 and 0 or flr(rnd(16))
+                rectfill(x, y, x+7, y+7, c)
+            end
+        end
+        
+        -- black takeover
+        if el > 1.5 then
+            local pct = (el - 1.5) * 3000
+            for i=1,pct do
+                pset(flr(rnd(128)), flr(rnd(128)), 0)
+            end
+        end
+    
+    -- fully black -> show death screen UI
+    else
+        cls(0)
+        
+        -- wait half second before showing UI
+        local t=time()-death_closed_at
+        if t < 0.5 then
+            -- just black screen, no UI yet
+            return
+        end
+        
+        local cx=64
+        
+        -- score (top)
+        local s="score: "..flr(game_manager.player_score)
+        print(s,cx-#s*2,30,7)
 
-        -- middle: face
-        spr(64,face_x,face_y,3,3)
-        pal() -- reset mapping
+        -- face (center) with pink transparent + eye crackle
+        palt(14,true) palt(0,false)
+        if t<3 then if rnd()<0.4 then pal(8,0) end else pal(8,0) end
+        local fx,fy=cx-12,64-12
+        spr(64,fx,fy,3,3)
+        pal()
 
-        -- bottom: continue
+        -- continue (bottom)
         local c=flr(max(0,death_cd-(time()-death_t))+0.99)
         local msg="continue? ("..c..")  ❎"
         print(msg,cx-#msg*2,92,6)
     end
 end
-
-
-
 
 
 
