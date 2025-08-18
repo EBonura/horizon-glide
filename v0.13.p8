@@ -214,7 +214,6 @@ function _update()
     end
 
     particle_sys:update()
-    tile_manager:update_tiles()
     tile_manager:cleanup_cache()
 end
 
@@ -1574,10 +1573,7 @@ tile_manager = {
     min_y = 0,
     max_x = 0,
     max_y = 0,
-    ops = {},         -- ← tiny work queue
-    budget = 40       -- ← ops per frame (tune 24–64)
 }
-
 
 
 function tile_manager:init()
@@ -1585,9 +1581,7 @@ function tile_manager:init()
     self.min_x, self.max_x, self.min_y, self.max_y = 0,0,0,0
     self.player_x, self.player_y = self.player_x or 0, self.player_y or 0
     self.view_range_cached = view_range
-    self.ops = {} -- ← reset streaming work
 end
-
 
 
 function tile_manager:add_tile(x,y)
@@ -1629,75 +1623,39 @@ end
 function tile_manager:update_tiles()
     local nminx,nminy=self.player_x-view_range,self.player_y-view_range
     local nmaxx,nmaxy=self.player_x+view_range,self.player_y+view_range
-    local ops=self.ops
 
-    -- schedule work (cheap op descriptors, not per-tile)
+    -- first fill or range change ヌ●★ full rebuild
     if #self.tile_list<1 or self.view_range_cached!=view_range then
-        -- type 0: full rebuild {0,x1,x2,y1,y2,cx,cy}
-        add(ops,{0,nminx,nmaxx,nminy,nmaxy,nminx,nminy})
+        for x=nminx,nmaxx do for y=nminy,nmaxy do self:add_tile(x,y) end end
         self.min_x,self.max_x,self.min_y,self.max_y=nminx,nmaxx,nminy,nmaxy
-        self.view_range_cached=view_range
-        self.dx_pending,self.dy_pending=0,0
-    else
-        local dx,dy=self.dx_pending or 0,self.dy_pending or 0
-        -- type 1: add col {1,x,y1,y2,cy} | type 2: remove col {2,x,y1,y2,cy}
-        if dx>0 then
-            add(ops,{1,nmaxx,nminy,nmaxy,nminy})
-            add(ops,{2,self.min_x,self.min_y,self.max_y,self.min_y})
-            self.min_x+=1 self.max_x+=1
-        elseif dx<0 then
-            add(ops,{1,nminx,nminy,nmaxy,nminy})
-            add(ops,{2,self.max_x,self.min_y,self.max_y,self.min_y})
-            self.min_x-=1 self.max_x-=1
-        end
-        -- type 3: add row {3,y,x1,x2,cx} | type 4: remove row {4,y,x1,x2,cx}
-        if dy>0 then
-            add(ops,{3,nmaxy,nminx,nmaxx,nminx})
-            add(ops,{4,self.min_y,nminx,nmaxx,nminx})
-            self.min_y+=1 self.max_y+=1
-        elseif dy<0 then
-            add(ops,{3,nminy,nminx,nmaxx,nminx})
-            add(ops,{4,self.max_y,nminx,nmaxx,nminx})
-            self.min_y-=1 self.max_y-=1
-        end
-        self.dx_pending,self.dy_pending=0,0
+        self.view_range_cached=view_range self.dx_pending,self.dy_pending=0,0
+        return
     end
 
-    -- consume small budget each frame
-    local lim=self.budget or 40
-    while lim>0 and #ops>0 do
-        local o=ops[1] local t=o[1]
-        if t==0 then
-            -- full rebuild scan
-            local cx,cy=o[6],o[7]
-            self:add_tile(cx,cy) lim-=1
-            cy+=1 if cy>o[5] then cy=o[4] cx+=1 end
-            o[6],o[7]=cx,cy
-            if cx>o[3] then deli(ops,1) end
-        elseif t==1 then
-            -- add col
-            local x,cy=o[2],o[5]
-            self:add_tile(x,cy) lim-=1
-            cy+=1 o[5]=cy if cy>o[4] then deli(ops,1) end
-        elseif t==2 then
-            -- remove col
-            local x,cy=o[2],o[5]
-            self:remove_tile(x,cy) lim-=1
-            cy+=1 o[5]=cy if cy>o[4] then deli(ops,1) end
-        elseif t==3 then
-            -- add row
-            local y,cx=o[2],o[5]
-            self:add_tile(cx,y) lim-=1
-            cx+=1 o[5]=cx if cx>o[4] then deli(ops,1) end
-        else
-            -- remove row
-            local y,cx=o[2],o[5]
-            self:remove_tile(cx,y) lim-=1
-            cx+=1 o[5]=cx if cx>o[4] then deli(ops,1) end
-        end
+    local dx,dy=self.dx_pending or 0,self.dy_pending or 0
+    if dx==0 and dy==0 then return end
+
+    -- moved in x?
+    if dx>0 then
+        for y=nminy,nmaxy do self:add_tile(nmaxx,y) end
+        for y=self.min_y,self.max_y do self:remove_tile(self.min_x,y) end
+    elseif dx<0 then
+        for y=nminy,nmaxy do self:add_tile(nminx,y) end
+        for y=self.min_y,self.max_y do self:remove_tile(self.max_x,y) end
     end
+
+    -- moved in y?
+    if dy>0 then
+        for x=nminx,nmaxx do self:add_tile(x,nmaxy) end
+        for x=self.min_x,self.max_x do self:remove_tile(x,self.min_y) end
+    elseif dy<0 then
+        for x=nminx,nmaxx do self:add_tile(x,nminy) end
+        for x=self.min_x,self.max_x do self:remove_tile(x,self.max_y) end
+    end
+
+    self.min_x,self.max_x,self.min_y,self.max_y=nminx,nmaxx,nminy,nmaxy
+    self.dx_pending,self.dy_pending=0,0
 end
-
 
 
 function tile_manager:cleanup_cache()
