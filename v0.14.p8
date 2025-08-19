@@ -543,7 +543,7 @@ function init_game()
     player_ship.hp = player_ship.max_hp
     
     -- prevent immediate shooting
-    player_ship.last_shot_time = time()
+    player_ship.last_shot_time = 0
     
     -- Update tiles for full view range
     tile_manager:update_player_position(player_ship.x, player_ship.y)
@@ -921,7 +921,7 @@ end
 function gm:reset()
     self.state="idle"
     self.current_event=nil
-    self.idle_start_time=time()
+    self.idle_start_time=nil
     self.next_event_index=1
     self.player_score=0
     self.display_score=0
@@ -929,6 +929,30 @@ function gm:reset()
 end
 
 function gm:update()
+    -- tutorial (minimal tokens)
+    if not self.tut then
+        local moved=(abs(player_ship.vx)+abs(player_ship.vy))>0.01
+        local shot=player_ship.last_shot_time and player_ship.last_shot_time>0
+        local collected=player_ship.ammo>50
+        
+        -- debug output
+        printh("moved: "..tostr(moved).." | shot: "..tostr(shot).." | collected: "..tostr(collected).." | ammo: "..player_ship.ammo)
+        
+        if not moved then
+            ui_say("arrow keys to move",99,7)
+        elseif not shot then
+            ui_say("❎ to shoot",99,7)
+        elseif not collected then
+            ui_say("collect ammo",99,7)
+        else
+            self.tut=true
+            ui_say("",0,7)  -- clear
+            self.idle_start_time=time()  -- start idle timer now
+        end
+        return  -- skip events during tutorial
+    end
+    
+    -- original update code
     if self.state=="idle" then
         if time()-self.idle_start_time>=self.idle_duration then
             self:start_random_event()
@@ -1194,6 +1218,7 @@ function ship.new(start_x, start_y, is_enemy)
         ai_phase = is_enemy and rnd(6) or 0,
         max_ammo = is_enemy and 9999 or 100,
         ammo = is_enemy and 9999 or 50,
+        last_shot_time = 0
     }, ship)
 end
 
