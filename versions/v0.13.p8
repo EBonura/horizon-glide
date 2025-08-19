@@ -89,7 +89,7 @@ function _init()
     view_range,half_tile_width,half_tile_height,block_h=0,12,6,2
 
     -- containers & cursors
-    enemies,projectiles,floating_texts,ws,menu_panels,customization_panels={},{},{},{},{},{}
+    enemies,collectibles,projectiles,floating_texts,ws,menu_panels,customization_panels={},{},{},{},{},{},{}
     customize_cursor,menu_cursor=1,1
 
     -- player
@@ -181,6 +181,8 @@ function _update()
         end
 
         update_projectiles()
+        manage_collectibles()
+
 
         for i=#floating_texts,1,-1 do
             if not floating_texts[i]:update() then
@@ -375,7 +377,7 @@ function draw_startup()
     -- ui
     if startup_phase=="menu_select" then
         play_panel:draw() customize_panel:draw()
-    else
+    elseif startup_phase=="customize" then
         for p in all(customization_panels) do p:draw() end
         draw_minimap(80,32)
     end
@@ -522,6 +524,10 @@ end
 
 -- GAME FUNCTIONS
 function init_game()
+    -- Reset palette (important after death screen!)
+    pal()
+    palt(0,false) 
+    palt(14,true)
     game_state = "game"
     
     -- Reset UI
@@ -533,6 +539,10 @@ function init_game()
     -- game manager
     game_manager = gm.new()
     
+    -- Reset player ship state
+    player_ship.dead = false
+    player_ship.hp = player_ship.max_hp
+    
     -- prevent immediate shooting
     player_ship.last_shot_time = time()
     
@@ -543,9 +553,17 @@ function init_game()
     player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
     last_cache_cleanup = time()
 
-    -- === wipe top texts (new) ===
-    ui_msg="" ui_vis=0 ui_until=0
+    -- wipe top texts
+    ui_msg="" 
+    ui_vis=0 
+    ui_until=0
     ui_rmsg=""
+
+    collectibles = {}
+    for i = 1, 8 do  -- spawn 8 items
+        local a, d = rnd(), 15 + rnd(20)
+        add(collectibles, collectible.new(cos(a) * d, sin(a) * d))
+    end
 end
 
 
@@ -576,6 +594,7 @@ function draw_world()
 
     -- fx + ship
     particle_sys:draw()
+    for c in all(collectibles) do c:draw() end
     if not player_ship.dead then player_ship:draw() end
 end
 
@@ -887,7 +906,8 @@ gm.__index = gm
 function gm.new()
     local self=setmetatable({
         idle_duration=5,
-        event_types={"combat","circles","bombing"},
+        -- event_types={"combat","circles","bombing"},
+        event_types={"bombing"},
 
         difficulty_rings_base=3,
         difficulty_rings_step=1,
@@ -988,7 +1008,7 @@ function bombing_event:update()
             particle_sys:explode(b.x,b.y,0,2) sfx(62)
             local d=dist_trig(player_ship.x-b.x,player_ship.y-b.y)
             if d<3 then
-                player_ship.hp-=max(0,30-10*d)
+                player_ship.hp-=max(0,15-5*d)
                 if player_ship.hp<=0 then
                     self.completed,self.success=true,false
                     player_ship.dead=true
@@ -1001,21 +1021,27 @@ end
 
 
 function bombing_event:draw()
-    local ring_r = 12 + sin(time()*4) * 3
+    local t=time()
+    local ring_r=12+sin(t*4)*3
     for b in all(self.bombs) do
-        local sx, sy = iso(b.x, b.y)
-        local _,_,_,h = terrain(flr(b.x), flr(b.y))
-        local gy = sy - h*block_h
+        local sx,sy=iso(b.x,b.y)
+        local _,_,_,h=terrain(flr(b.x),flr(b.y))
+        local gy=sy-h*block_h
 
-        -- ground ring
-        for a=0,1,0.06 do
-            pset(sx+cos(a)*ring_r, gy+sin(a)*ring_r*0.5, 8)
-        end
+        -- ground impact oval (wider than tall for iso)
+        oval(sx-ring_r,gy-ring_r*0.5,sx+ring_r,gy+ring_r*0.5,8)
 
-        -- falling sprite (bomb)
-        spr(67, sx-4, gy - b.z*block_h - 4)
+        -- bomb itself (pulsing filled orb)
+        local bz=gy-b.z*block_h
+        local r=4+sin(t*6+b.z/8)*2
+        circfill(sx,bz,r,7)
+        circfill(sx,bz,r/2,8)
     end
 end
+
+
+
+
 
 
 
@@ -1152,6 +1178,64 @@ function circle_event:draw()
 end
 
 
+-- COLLECTIBLES (add after floating_text class)
+collectible = {}
+collectible.__index = collectible
+
+function collectible.new(x, y)
+    return setmetatable({
+        x = x,
+        y = y,
+        collected = false
+    }, collectible)
+end
+
+function collectible:update()
+    if not self.collected then
+        local dx, dy = player_ship.x - self.x, player_ship.y - self.y
+
+        local dist2 = dist_trig(dx, dy)
+        -- despawn if too far
+        if dist2 > 20 then return false end
+        
+        -- collect if close
+        if dist2 < 1 then
+            self.collected = true
+            player_ship.hp = min(player_ship.hp + 10, player_ship.max_hp)
+            sfx(61)
+            local sx, sy = player_ship:get_screen_pos()
+            add(floating_texts, floating_text.new(sx, sy - 10, "+10hp", 11))
+            return false
+        end
+    end
+    return not self.collected
+end
+
+function collectible:draw()
+    if not self.collected then
+        local sx, sy = iso(self.x, self.y)
+        local _, _, _, h = terrain(flr(self.x), flr(self.y))
+        sspr(32, 32, 16, 16, sx - 8, sy - h * block_h - 8)
+    end
+end
+
+function manage_collectibles()
+    -- remove far ones
+    for i = #collectibles, 1, -1 do
+        if not collectibles[i]:update() then
+            deli(collectibles, i)
+        end
+    end
+    
+    -- spawn new ones if needed
+    while #collectibles < 60 do  -- maintain 6 items
+        local a, d = rnd(), 8 + rnd(15)
+        local x, y = player_ship.x + cos(a) * d, player_ship.y + sin(a) * d
+        add(collectibles, collectible.new(x, y))
+    end
+end
+
+
 
 -- SHIP CLASS
 ship = {}
@@ -1229,18 +1313,17 @@ function ship:fire_at()
     local dx, dy = self.target.x - self.x, self.target.y - self.y
     local dist = dist_trig(dx, dy)
     
-    if dist < 15 then
-        add(projectiles, {
-            x = self.x,
-            y = self.y,
-            z = self.current_altitude,
-            vx = self.vx + dx/dist * self.projectile_speed,
-            vy = self.vy + dy/dist * self.projectile_speed,
-            life = self.projectile_life,
-            owner = self,
-        })
-        sfx(63)
-    end
+    -- Remove the dist < 15 check - we already checked range in targeting
+    add(projectiles, {
+        x = self.x,
+        y = self.y,
+        z = self.current_altitude,
+        vx = self.vx + dx/dist * self.projectile_speed,
+        vy = self.vy + dy/dist * self.projectile_speed,
+        life = self.projectile_life,
+        owner = self,
+    })
+    sfx(63)
 end
 
 
@@ -1429,7 +1512,8 @@ function update_projectiles()
         for t in all(targets) do
             local dx,dy=t.x-p.x,t.y-p.y
             if dx*dx+dy*dy<0.5 then
-                t.hp-=5 p.life=0
+                t.hp-=3 
+                p.life=0
                 particle_sys:explode(p.x,p.y,-t.current_altitude*block_h,0.8)
                 if t.hp<=0 then
                     sfx(62)
@@ -1468,7 +1552,7 @@ function ui_tick()
         ui_vis = min(ui_vis + ((#ui_msg > 15) and 3 or 1), #ui_msg)
     end
 
-    -- timeout → clear & collapse
+    -- timeout ヌ●★ clear & collapse
     if ui_until>0 and time()>ui_until then
         ui_msg="" ui_vis=0 ui_until=0
         ui_box_target_h=6
@@ -1812,22 +1896,22 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e00eeee000000000eeeeeeeee55ee55eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e00eee00555555d500eeeeeeee5555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05ee005d555555d500eeeeee565555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05ee0dd5dddddd5dd0eeeeee565555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05e00ddd6ddddd5dd00eeeee556555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05e05d6d6dddd5ddd50eeeeee5555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e05005ddd6dddd5dd5500eeeeee55eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e00505666d6ddd5ddd5050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e0650500665555ddd05050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e065000000000000000050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e065000888000088800050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e055050088055088005050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-ee050560005665000d5050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eee0005665666dddd5000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeee0506666ddddd5050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeee0500666ddddd0050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e00eeee000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e00eee00555555d500eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00eee00eee00eeeeeee0c77c0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05ee005d555555d500eeeeeeeeeeeeeeeee33333333eeeeee0500e0dee0d0eeeeee0cccccc0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05ee0dd5dddddd5dd0eeeeeeeeeeeeeeee3bbbbbbbb3eeeee055000d00dd0eeeee011c77cdd0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05e00ddd6ddddd5dd00eeeeeeeeeeeeee33bbb77bbb3eeeee005000d00d00eeeee0cc7777cc0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05e05d6d6dddd5ddd50eeeeeeeeeeeeee33bbb77bbb3eeeeeee0050dd00eeeeee0101c11cd0d0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e05005ddd6dddd5dd5500eeeeeeeeeeeee63b777777b3eeeeeee055dddd0eeeeee0101c11cd0d0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e00505666d6ddd5ddd5050eeeeeeeeeeee33b777777b3eeeeee0055dd77d0eeeee01ccccccccd0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e0650500665555ddd05050eeee33333eee33bbb77bbb3eeeeee0555ddd7d0eeeee0101c11cd0d0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e065000000000000000050eee3bbbbb3ee63bbb77bbb3eeeeee0555ddddd0eeeee01011cc1d0d0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e065000888000088800050eee3bb7bb3ee33bbbbbbbb3eeeeee0555ddddd0eeeeee0000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+e055050088055088005050eee3b777b3ee3333333333eeeeeee00555dddd0eeeee0111ddd666d0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ee050560005665000d5050eee3bb7bb3eee33636363eeeeeeeee00555dd0eeeeee0111666776d0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eee0005665666dddd5000eeee3bbbbb3eeeeeeeeeeeeeeeeeeeee005550eeeeeeee01dddd66d0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeee0506666ddddd5050eeeeee33333eeeeeeeeeeeeeeeeeeeeeee0000eeeeeeeeee0dddddd0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+eeee0500666ddddd0050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeee0500560000d50050eeee560000d5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeee0050506666050500eeee560000d5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeee00050666605000eeeee50666605eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
