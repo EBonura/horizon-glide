@@ -69,9 +69,9 @@ function terrain(x,y)
     return unpack(cell_cache[key])
 end
 
-function terrain_h(x,y)
+function terrain_h(x,y,clamp)
     local _,_,_,h=terrain(x,y)
-    return h
+    return clamp and max(0,h) or h
 end
 
 
@@ -114,11 +114,10 @@ function _init()
     tile_manager:update_player_position(0,0)
 
     -- set ship altitude after tiles/terrain exist
-    player_ship.current_altitude=player_ship:get_terrain_height_at(0,0)+player_ship.hover_height
+    player_ship:set_altitude()
 
     -- top/right UI (no ui_typing_started needed)
-    ui_msg,ui_vis,ui_until,ui_col="",0,0,7
-    ui_rmsg=""
+    ui_msg,ui_vis,ui_until,ui_col,ui_rmsg="",0,0,7,""
     ui_box_h,ui_box_target_h=6,6
 end
 
@@ -139,7 +138,7 @@ function _update()
         player_ship.angle=atan2(svx,svy)
 
         -- hover-lock to terrain
-        player_ship.current_altitude=player_ship:get_terrain_height_at(player_ship.x,player_ship.y)+player_ship.hover_height
+        player_ship:set_altitude()
         player_ship.is_hovering=true
 
         -- stream tiles
@@ -469,7 +468,7 @@ function regenerate_world_live()
     tile_manager:update_tiles()
 
     -- reset altitude to new terrain
-    player_ship.current_altitude=player_ship:get_terrain_height_at(player_ship.x,player_ship.y)+player_ship.hover_height
+    player_ship:set_altitude()
 end
 
 
@@ -554,7 +553,7 @@ function init_game()
     tile_manager:update_player_position(player_ship.x, player_ship.y)
     
     -- Ensure altitude is correct
-    player_ship.current_altitude = player_ship:get_terrain_height_at(player_ship.x, player_ship.y) + player_ship.hover_height
+    player_ship:set_altitude()
     last_cache_cleanup = time()
 
     -- wipe top texts
@@ -569,6 +568,7 @@ function init_game()
         add(collectibles, collectible.new(cos(a) * d, sin(a) * d))
     end
 end
+
 
 
 
@@ -1249,6 +1249,9 @@ function ship.new(start_x, start_y, is_enemy)
     }, ship)
 end
 
+function ship:set_altitude()
+    self.current_altitude = terrain_h(self.x, self.y, true) + self.hover_height
+end
 
 function ship:ai_update()
     -- base vector to player
@@ -1308,11 +1311,6 @@ function ship:fire_at()
     sfx(63)
 end
 
-
-function ship:get_terrain_height_at(x, y)
-    return max(0, terrain_h(x, y))
-end
-
 function ship:update_targeting()
     local fx,fy=cos(self.angle),sin(self.angle)
     local best,found=15,nil
@@ -1364,8 +1362,8 @@ function ship:update()
     self.x+=self.vx self.y+=self.vy
 
     -- terrain ramp launch
-    local new_terrain=self:get_terrain_height_at(self.x,self.y)
-    local height_diff=new_terrain-self:get_terrain_height_at(self.x-self.vx,self.y-self.vy)
+    local new_terrain=terrain_h(self.x,self.y)
+    local height_diff=new_terrain-terrain_h(self.x-self.vx,self.y-self.vy)
     if self.is_hovering and height_diff>0 and speed>0.01 then
         self.vz=min(height_diff*self.ramp_boost*speed*15, 1.5)  -- cap vertical velocity
         self.is_hovering=false
@@ -1450,7 +1448,7 @@ function ship:draw()
     local p3y = sy + sin(back_angle + 0.15) * half_ship_len
 
     -- shadow
-    local terrain_height = self:get_terrain_height_at(self.x, self.y)
+    local terrain_height = terrain_h(self.x, self.y)
     local shadow_offset = (self.current_altitude - terrain_height) * block_h
     draw_triangle(fx, fy + shadow_offset, p2x, p2y + shadow_offset, p3x, p3y + shadow_offset, self.shadow_col)
 
@@ -1483,7 +1481,7 @@ function ship:spawn_particles(num, col_override)
     particle_sys:spawn(
         self.x, self.y,
         -self.current_altitude * block_h,
-        col_override or (self:get_terrain_height_at(self.x,self.y) <= 0 and 7 or 0),
+        col_override or (terrain_h(self.x,self.y) <= 0 and 7 or 0),
         num
     )
 end
