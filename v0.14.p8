@@ -97,10 +97,10 @@ function _init()
 
     -- menu options (MUST be set before any terrain() call)
     menu_options={
-        {name="scale",  values={8,10,12,14,16}, current=2},
-        {name="water",  values={-4,-3,-2,-1,0,1,2,3,4}, current=4},
-        {name="seed",   values={}, current=1, is_seed=true},
-        {name="random", is_action=true},
+        {name="sCALE",  values={8,10,12,14,16}, current=2},
+        {name="wATER",  values={-4,-3,-2,-1,0,1,2,3,4}, current=4},
+        {name="sEED",   values={}, current=1, is_seed=true},
+        {name="rANDOM", is_action=true},
     }
 
     -- terrain + tiles (terrain() uses menu_options)
@@ -218,7 +218,7 @@ function _draw()
         draw_death()
     end
     -- perf monitor
-    -- printh("mem: "..tostr(stat(0)).." \t| cpu: "..tostr(stat(1)).." \t| fps: "..tostr(stat(7)))
+    printh("mem: "..tostr(stat(0)).." \t| cpu: "..tostr(stat(1)).." \t| fps: "..tostr(stat(7)))
 end
 
 
@@ -1174,6 +1174,7 @@ function collectible:update()
         local sx, sy = player_ship:get_screen_pos()
         player_ship.ammo = min(player_ship.ammo + 10, player_ship.max_ammo)
         add(floating_texts, floating_text.new(sx, sy - 10, "+10ammo", 12))
+        game_manager.player_score += 25
         return false
     end
     return true
@@ -1421,17 +1422,17 @@ function ship:get_camera_target()
             local d=dist_trig(e.x-fx,e.y-fy)
             if d<best then best=d ne=e end
         end
-        if ne then 
-            fx+=(ne.x-fx)*0.2 
-            fy+=(ne.y-fy)*0.2 
+        self.cam_blend=(self.cam_blend or 0)+(ne and 0.02 or -0.03)
+        self.cam_blend=mid(0,self.cam_blend,0.2)
+        if ne and self.cam_blend>0 then 
+            fx+=(ne.x-fx)*self.cam_blend 
+            fy+=(ne.y-fy)*self.cam_blend 
         end
-
     end
     local sx=(fx-fy)*half_tile_width
     local sy=(fx+fy)*half_tile_height - self.current_altitude*block_h
     return 64-sx,64-sy
 end
-
 
 
 
@@ -1527,9 +1528,6 @@ function ui_tick()
         ui_box_h += (ui_box_target_h - ui_box_h) * 0.2
         if abs(ui_box_h - ui_box_target_h) < 0.5 then ui_box_h = ui_box_target_h end
     end
-
-        printh("ui_msg: '"..ui_msg.."' | vis: "..ui_vis.." | box_h: "..ui_box_h.." | target_h: "..ui_box_target_h)
-
 
     -- nothing to type yet or box not expanded
     if ui_msg=="" or ui_box_h<=25 then return end
@@ -1883,46 +1881,30 @@ eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e00eeee000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0000eeeeeee0e000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-e00eee00555555d500eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00eee00eee00eeeeeee0c77c0eeeee060666660666000ee00000000000000eeeeeeeeeeeeeeeee
-e05ee005d555555d500eeeeeeeeeeeeeeeee33333333eeeeee0500e0dee0d0eeeeee0cccccc0eeee0757777606777760e09999990997700eeeeeeeeeeeeeeeee
-e05ee0dd5dddddd5dd0eeeeeeeeeeeeeeee3bbbbbbbb3eeeee055000d00dd0eeeee011c77cdd0eee07e7777606777770e09444490997770eeeeeeeeeeeeeeeee
-e05e00ddd6ddddd5dd00eeeeeeeeeeeeee33bbb77bbb3eeeee005000d00d00eeeee0cc7777cc0eee0656666606666660e09444490449900eeeeeeeeeeeeeeeee
-e05e05d6d6dddd5ddd50eeeeeeeeeeeeee33bbb77bbb3eeeeeee0050dd00eeeeee0101c11cd0d0ee0555555505555560e09444490000000eeeeeeeeeeeeeeeee
-e05005ddd6dddd5dd5500eeeeeeeeeeeee63b777777b3eeeeeee055dddd0eeeeee0101c11cd0d0ee050655550556000ee09444490997700eeeeeeeeeeeeeeeee
-e00505666d6ddd5ddd5050eeeeeeeeeeee33b777777b3eeeeee0055dd77d0eeeee01ccccccccd0ee00e000000000eeeee09444490997770eeeeeeeeeeeeeeeee
-e0650500665555ddd05050eeee33333eee33bbb77bbb3eeeeee0555ddd7d0eeeee0101c11cd0d0eeeeeeeeeeeeeeeeeee09444490449900eeeeeeeeeeeeeeeee
-e065000000000000000050eee3bbbbb3ee63bbb77bbb3eeeeee0555ddddd0eeeee01011cc1d0d0eeeeeeeeeeeeeeeeeee09444490000000eeeeeeeeeeeeeeeee
-e065000888000088800050eee3bb7bb3ee33bbbbbbbb3eeeeee0555ddddd0eeeeee0000000000eeeeeeeeeeeeeeeeeeee09444490997700eeeeeeeeeeeeeeeee
-e055050088055088005050eee3b777b3ee3333333333eeeeeee00555dddd0eeeee0111ddd666d0eeeeeeeeeeeeeeeeeee09444490997770eeeeeeeeeeeeeeeee
-ee050560005665000d5050eee3bb7bb3eee33636363eeeeeeeee00555dd0eeeeee0111666776d0eeeeeeeeeeeeeeeeeee09999990449900eeeeeeeeeeeeeeeee
-eee0005665666dddd5000eeee3bbbbb3eeeeeeeeeeeeeeeeeeeee005550eeeeeeee01dddd66d0eeeeeeeeeeeeeeeeeeee00000000000000eeeeeeeeeeeeeeeee
-eeee0506666ddddd5050eeeeee33333eeeeeeeeeeeeeeeeeeeeeee0000eeeeeeeeee0dddddd0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeee0500666ddddd0050eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeee0500560000d50050eeee560000d5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeee0050506666050500eeee560000d5eeeeeee000eeeeeeeeeeeee00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeee00050666605000eeeee50666605eeeee007770eeeeeeeeee009700eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-eeeeee0005dddd5000eeeeee00dddd00eee009994400eeeeeee0099994400eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000eeeeeeeeeeeeeeeeeee
-eeeeeee0055555500eeeeeee05555550e000994400770eeee00f0044400ff00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0ccc0cc7700eeeeeeeeeeeeeeeeee
-eeeeeeee00000000eeeeeeee0000000009990400994400ee0fffff000ffffff0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0c1c0cc7770eeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee094490994400770e000fffff00fff000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0c1c011cc00eeeeeeeeeeeeeeeeee
-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee009449040099940009900fffff000440eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0c1c0000000eeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee09094490999440900999900ff0044440eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0c1c0cc7700eeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee09909449044009900999999004444440eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0c1c0cc7770eeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee099099990099990e00999994444400eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0ccc011cc00eeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee09909009999900eee0099944400eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee000000000eeeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee09909999900eeeeeee009400eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee09099900eeeeeeeeeee00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00900eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000000000000000000eeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e00eeee000000000eeeeeeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e00eee00555555d500eeeeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e05ee005d555555d500eeeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e05ee0dd5dddddd5dd0eeeeeeeee000000000eee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e05e00ddd6ddddd5dd00eeeeeee0ccc0cc7700ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e05e05d6d6dddd5ddd50eeeeeee0c1c0cc7770ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e05005ddd6dddd5dd5500eeeeee0c1c011cc00ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e00505666d6ddd5ddd5050eeeee0c1c0000000ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e0650500665555ddd05050eeeee0c1c0cc7700ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e065000000000000000050eeeee0c1c0cc7770ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e065000888000088800050eeeee0ccc011cc00ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+e055050088055088005050eeeeee000000000eee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ee050560005665000d5050eeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eee0005665666dddd5000eeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeee0506666ddddd5050eeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeee0500666ddddd0050eeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeee0500560000d50050eeee560000d5eeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeee0050506666050500eeee560000d5eeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeeee00050666605000eeeee50666605eeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeeeee0005dddd5000eeeeee00dddd00eeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeeeeee0055555500eeeeeee05555550eeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeeeeeee00000000eeeeeeee00000000eeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
 010b00001007300000000000000010675300040000000000100730000010073000001067500000000000000010073000000000000000106750000000000000001007300000000000000010675000000000000000
 010b00001007300000000000000010675300040000000000100730000010073000001067500000000000000010073000000000000000106750000000000000001007300000000000000010675000001067510675
