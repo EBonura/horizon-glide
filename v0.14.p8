@@ -218,7 +218,7 @@ function _draw()
         draw_death()
     end
     -- perf monitor
-    printh("mem: "..tostr(stat(0)).." \t| cpu: "..tostr(stat(1)).." \t| fps: "..tostr(stat(7)))
+    -- printh("mem: "..tostr(stat(0)).." \t| cpu: "..tostr(stat(1)).." \t| fps: "..tostr(stat(7)))
 end
 
 
@@ -524,7 +524,7 @@ end
 -- GAME FUNCTIONS
 function init_game()
     music(0)
-    -- Reset palette (important after death screen!)
+    -- Reset palette
     pal()
     palt(0,false) 
     palt(14,true)
@@ -932,23 +932,46 @@ end
 function gm:update()
     -- tutorial (minimal tokens)
     if not self.tut then
-        local moved=(abs(player_ship.vx)+abs(player_ship.vy))>0.01
-        local shot=player_ship.last_shot_time and player_ship.last_shot_time>0
-        local collected=player_ship.ammo>50
+        -- Skip tutorial checks during grace period (reuse last_shot_time)
+        if player_ship.last_shot_time > time() then
+            return  -- skip everything during grace period
+        end
         
-        -- debug output
-        printh("moved: "..tostr(moved).." | shot: "..tostr(shot).." | collected: "..tostr(collected).." | ammo: "..player_ship.ammo)
+        -- Track what player has done (persist across frames)
+        self.tut_moved = self.tut_moved or btn(⬆️) or btn(⬇️) or btn(⬅️) or btn(➡️)
+        self.tut_shot = self.tut_shot or btn(❎)
+        self.tut_collected = self.tut_collected or player_ship.ammo > 50
         
-        if not moved then
-            ui_say("arrow keys to move",99,7)
-        elseif not shot then
-            ui_say("❎ to shoot",99,7)
-        elseif not collected then
-            ui_say("collect ammo",99,7)
+        -- Check what hasn't been done yet (priority: move > shoot > collect)
+        local new_msg = nil
+        if not self.tut_moved then
+            new_msg = "arrow keys to move"
+        elseif not self.tut_shot then
+            new_msg = "❎ to shoot"
+        elseif not self.tut_collected then
+            new_msg = "collect ammo"
+        elseif not self.tut_complete then
+            -- Show completion message once
+            new_msg = "horizon glide begins!"
+            self.tut_complete = true
+            self.tut_complete_time = time() + 2  -- show for 2 seconds
+        elseif time() > self.tut_complete_time then
+            -- Tutorial fully complete after message shown
+            self.tut = true
+            ui_say("", 0, 7)
+            self.idle_start_time = time()
+            return
         else
-            self.tut=true
-            ui_say("",0,7)  -- clear
-            self.idle_start_time=time()  -- start idle timer now
+            -- Waiting for completion message to finish
+            return
+        end
+        
+        -- Only update UI if message changed
+        if new_msg != self.tut_msg then
+            self.tut_msg = new_msg
+            local dur = (new_msg == "good luck!") and 2 or 99
+            local col = (new_msg == "good luck!") and 11 or 7
+            ui_say(new_msg, dur, col)
         end
         return  -- skip events during tutorial
     end
@@ -1504,6 +1527,9 @@ function ui_tick()
         ui_box_h += (ui_box_target_h - ui_box_h) * 0.2
         if abs(ui_box_h - ui_box_target_h) < 0.5 then ui_box_h = ui_box_target_h end
     end
+
+        printh("ui_msg: '"..ui_msg.."' | vis: "..ui_vis.." | box_h: "..ui_box_h.." | target_h: "..ui_box_target_h)
+
 
     -- nothing to type yet or box not expanded
     if ui_msg=="" or ui_box_h<=25 then return end
