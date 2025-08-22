@@ -35,7 +35,7 @@ end
 
 -- terrain color lookup tables (top, side, dark triplets; height thresholds)
 TERRAIN_PAL_STR = "\1\0\0\12\1\1\15\4\2\3\1\0\11\3\1\4\2\0\6\5\0\7\6\5"
-TERRAIN_THRESH  = {-2,0,2,6,12,18,24,99}
+TERRAIN_THRESH = split"-2,0,2,6,12,18,24,99"
 
 function terrain(x,y)
     -- cache hit
@@ -101,8 +101,8 @@ function _init()
 
     -- menu options (MUST be set before any terrain() call)
     menu_options={
-        {name="sCALE",  values={8,10,12,14,16}, current=2},
-        {name="wATER",  values={-4,-3,-2,-1,0,1,2,3,4}, current=4},
+        {name="sCALE",  values=split"8,10,12,14,16", current=2},
+        {name="wATER",  values=split"-4,-3,-2,-1,0,1,2,3,4", current=4},
         {name="sEED",   values={}, current=1, is_seed=true},
         {name="rANDOM", is_action=true},
     }
@@ -185,7 +185,6 @@ function _update()
         update_projectiles()
         manage_collectibles()
 
-
         for i=#floating_texts,1,-1 do
             if not floating_texts[i]:update() then
                 deli(floating_texts,i)
@@ -199,7 +198,6 @@ function _update()
         end
 
         ui_tick()
-
     else -- "death"
         update_death()
     end
@@ -231,9 +229,8 @@ function enter_death()
     game_state="death"
     death_t=time()
     death_cd=10
-    death_phase=0          -- 0=digital break, 1=fully black
-    death_closed_at=nil
-    ui_msg="" ui_rmsg="" ui_box_target_h=6
+    death_phase,death_closed_at=0,nil
+    ui_msg,ui_rmsg,ui_box_target_h="","",6
 end
 
 function update_death()
@@ -478,9 +475,7 @@ function update_menu_select()
 
     -- toggle selection with up/down
     if btnp(⬆️) or btnp(⬇️) then
-        local s=play_panel.selected
-        play_panel.selected=not s
-        customize_panel.selected=s
+        play_panel.selected,customize_panel.selected=not play_panel.selected,not customize_panel.selected
     end
 
     -- confirm
@@ -557,10 +552,7 @@ function init_game()
     last_cache_cleanup = time()
 
     -- wipe top texts
-    ui_msg="" 
-    ui_vis=0 
-    ui_until=0
-    ui_rmsg=""
+    ui_msg,ui_vis,ui_until,ui_rmsg="",0,0,""
 
     collectibles = {}
     for i = 1, 8 do  -- spawn 8 items
@@ -909,7 +901,7 @@ gm.__index = gm
 function gm.new()
     local self=setmetatable({
         idle_duration=5,
-        event_types={"combat","circles"},
+        event_types=split"combat,circles",
 
         difficulty_rings_base=3,
         difficulty_rings_step=1,
@@ -1049,6 +1041,10 @@ function circle_event.new()
     return self
 end
 
+function pop(text, dy, col)
+    local sx,sy=player_ship:get_screen_pos()
+    add(floating_texts, floating_text.new(sx, (sy+(dy or -10)), text, col))
+end
 
 
 function circle_event:update()
@@ -1085,8 +1081,8 @@ function circle_event:update()
             if self.current_target < #self.circles then
                 self.end_time += self.recharge_seconds
                 local sx, sy = player_ship:get_screen_pos()
-                add(floating_texts, floating_text.new(sx, sy - 10, "+"..fmt2(self.recharge_seconds).."s"))
-                add(floating_texts, floating_text.new(sx, sy - 20, "+10hp", 11))
+                pop("+"..fmt2(self.recharge_seconds).."s",-10)
+                pop("+10hp",-20,11)
             end
 
             self.current_target += 1
@@ -1098,8 +1094,8 @@ function circle_event:update()
                 self.completed,self.success=true,true
                 local sx,sy=player_ship:get_screen_pos()
                 game_manager.player_score+=award
-                add(floating_texts,floating_text.new(sx,sy-10,"+"..award,7))
-                add(floating_texts,floating_text.new(sx,sy-20,"full hp!",11))
+                pop("+"..award,-10,7)
+                pop("full hp!",-20,11)
                 ui_say("event complete!",3,11)
                 ui_rmsg=""
             else
@@ -1174,9 +1170,8 @@ function collectible:update()
     if dist2 < 1 then
         self.collected = true
         sfx(61)
-        local sx, sy = player_ship:get_screen_pos()
         player_ship.ammo = min(player_ship.ammo + 10, player_ship.max_ammo)
-        add(floating_texts, floating_text.new(sx, sy - 10, "+10ammo", 12))
+        pop("+10ammo",-10,12)
         game_manager.player_score += 25
         return false
     end
@@ -1186,7 +1181,10 @@ end
 function collectible:draw()
     if not self.collected then
         local sx, sy = iso(self.x, self.y)
-        spr(67, sx - 8, sy - terrain_h(flr(self.x), flr(self.y)) * block_h - 8, 2, 2)
+        local h = terrain_h(self.x, self.y) * block_h
+        local float = sin(time() * 2 + self.x + self.y)
+        ovalfill(sx-5, sy-h+3, sx+5, sy-h+5, 1)  -- shadow
+        spr(67, sx - 8, sy - h - 8 + float, 2, 2)
     end
 end
 
@@ -1323,12 +1321,7 @@ function ship:update_targeting()
         end
     end
     if found then self.target=found return true end
-    if not self.is_enemy then
-        local a=atan2(self.vx,self.vy)
-        self.target={x=self.x+cos(a)*10,y=self.y+sin(a)*10}
-    else
-        self.target=nil
-    end
+    self.target = self.is_enemy and nil or {x=self.x+cos(a)*10,y=self.y+sin(a)*10}
     return false
 end
 
@@ -1605,9 +1598,10 @@ function draw_arrow_to(tx,ty)
     local dx,dy=tx-px,ty-py
     if dx*dx+dy*dy<4 then return end
 
-    -- orbit point in world space (1.5)
+    -- oscillating orbit distance
+    local orbit_dist = 1.5 + sin(time() * 3) * .2
     local a=atan2(dx,dy)
-    local sx,sy=iso(px+cos(a)*1.5, py+sin(a)*1.5)
+    local sx,sy=iso(px+cos(a)*orbit_dist, py+sin(a)*orbit_dist)
     sy-=player_ship.current_altitude*block_h
 
     -- screen-facing angle from iso delta
