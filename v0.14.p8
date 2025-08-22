@@ -544,7 +544,7 @@ function init_game()
     player_ship.hp = player_ship.max_hp
     
     -- prevent immediate shooting
-    player_ship.last_shot_time = 0
+    player_ship.last_shot_time = time() + 0.5
     
     -- Update tiles for full view range
     tile_manager:update_player_position(player_ship.x, player_ship.y)
