@@ -69,6 +69,10 @@ function terrain(x,y)
     return unpack(cell_cache[key])
 end
 
+function terrain_h(x,y)
+    local _,_,_,h=terrain(x,y)
+    return h
+end
 
 
 
@@ -579,7 +583,7 @@ function draw_world()
         local lx,ly
         for a=0,1,0.06 do
             local wx,wy=s.x+cos(a)*s.r,s.y+sin(a)*s.r
-            local _,_,_,h=terrain(flr(wx),flr(wy))
+            local h=terrain_h(flr(wx),flr(wy))
             if h<=0 then
                 local px,py=iso(wx,wy)
                 if lx then line(lx,ly,px,py,(h<=-2) and 12 or 7) end
@@ -1040,7 +1044,7 @@ function circle_event.new()
     end
 
     self.end_time=time()+self.base_time
-    ui_say("collect "..#self.circles.." circles!",3,8)
+    ui_say("cOLLECT "..#self.circles.." cIRCLES!",3,8)
     ui_rmsg=fmt2(self.base_time).."s"
     return self
 end
@@ -1117,8 +1121,7 @@ function circle_event:draw()
         if not circle.collected then
             local sx,sy=iso(circle.x,circle.y)
             local cx,cy=flr(circle.x),flr(circle.y)
-            local _,_,_,terrain_h=terrain(cx,cy)
-            local base_y=sy-terrain_h*block_h
+            local base_y=sy-terrain_h(cx,cy)*block_h
 
             -- highlight current target
             local cur=(i==self.current_target)
@@ -1183,8 +1186,7 @@ end
 function collectible:draw()
     if not self.collected then
         local sx, sy = iso(self.x, self.y)
-        local _, _, _, h = terrain(flr(self.x), flr(self.y))
-        spr(67, sx - 8, sy - h * block_h - 8, 2, 2)
+        spr(67, sx - 8, sy - terrain_h(flr(self.x), flr(self.y)) * block_h - 8, 2, 2)
     end
 end
 
@@ -1308,8 +1310,7 @@ end
 
 
 function ship:get_terrain_height_at(x, y)
-    local _,_,_,h = terrain(x, y)
-    return max(0, h)
+    return max(0, terrain_h(x, y))
 end
 
 function ship:update_targeting()
@@ -1636,8 +1637,7 @@ function tile.new(x,y)
     local hp=(h>0) and h*block_h or 0
 
     -- only need south/east for face shading
-    local _,_,_,hs=terrain(x,  y+1)
-    local _,_,_,he=terrain(x+1,y)
+    local hs,he=terrain_h(x,  y+1),terrain_h(x+1,y)
     local face=((hs<h) and 1 or 0)+((he<h) and 2 or 0)
 
     return setmetatable({
