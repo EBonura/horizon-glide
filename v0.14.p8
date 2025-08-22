@@ -947,12 +947,12 @@ function gm:update()
         if not self.tut_moved then
             new_msg = "arrow keys to move"
         elseif not self.tut_shot then
-            new_msg = "❎ to shoot"
+            new_msg = "❎ tO sHOOT"
         elseif not self.tut_collected then
-            new_msg = "collect ammo"
+            new_msg = "cOLLECT aMMO"
         elseif not self.tut_complete then
             -- Show completion message once
-            new_msg = "horizon glide begins!"
+            new_msg = "hORIZON gLIDE bEGINS!"
             self.tut_complete = true
             self.tut_complete_time = time() + 2  -- show for 2 seconds
         elseif time() > self.tut_complete_time then
@@ -1184,8 +1184,7 @@ function collectible:draw()
     if not self.collected then
         local sx, sy = iso(self.x, self.y)
         local _, _, _, h = terrain(flr(self.x), flr(self.y))
-        spr(108, sx - 8, sy - h * block_h - 8, 2, 2)
-
+        spr(67, sx - 8, sy - h * block_h - 8, 2, 2)
     end
 end
 
@@ -1815,14 +1814,14 @@ end
 -- TERRAIN GENERATION
 function perlin2d(x,y,p)
     local fx,fy=flr(x),flr(y)
-    local xi,yi=fx&127,fy&127
+    local xi,yi=fx&255,fy&255
     local xf,yf=x-fx,y-fy
     local u=xf*xf*(3-2*xf)
     local v=yf*yf*(3-2*yf)
 
-    -- hash corners (no px/px1 locals)
-    local a,b=p[xi]+yi,p[xi+1]+yi
-    local aa,ab,ba,bb=p[a],p[a+1],p[b],p[b+1]
+    -- hash corners
+    local a,b=p[xi]+yi,p[(xi+1)&255]+yi
+    local aa,ab,ba,bb=p[a&255],p[(a+1)&255],p[b&255],p[(b+1)&255]
 
     -- gradients
     local ax=((aa&1)<1 and xf or -xf)+((aa&2)<2 and yf or -yf)
@@ -1840,7 +1839,7 @@ end
 function generate_permutation(seed)
     srand(seed)
     local p={}
-    for i=0,255 do p[i]=flr(rnd(128)) end
+    for i=0,511 do p[i]=rnd(256) end
     return p
 end
 
