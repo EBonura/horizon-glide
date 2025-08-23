@@ -32,6 +32,10 @@ function draw_triangle(l,t,c,m,r,b,col)
     end
 end
 
+function draw_all(t)   for o in all(t) do o:draw()   end end
+function update_all(t) for o in all(t) do o:update() end end
+function prune_update(t) for i=#t,1,-1 do if not t[i]:update() then deli(t,i) end end end
+
 
 -- terrain color lookup tables (top, side, dark triplets; height thresholds)
 TERRAIN_PAL_STR = "\1\0\0\12\1\1\15\4\2\3\1\0\11\3\1\4\2\0\6\5\0\7\6\5"
@@ -184,12 +188,7 @@ function _update()
 
         update_projectiles()
         manage_collectibles()
-
-        for i=#floating_texts,1,-1 do
-            if not floating_texts[i]:update() then
-                deli(floating_texts,i)
-            end
-        end
+        prune_update(floating_texts)
 
         if game_manager.display_score < game_manager.player_score then
             local diff = game_manager.player_score - game_manager.display_score
@@ -226,6 +225,7 @@ end
 
 -- death flow (digital break effect)
 function enter_death()
+    music(34)
     game_state="death"
     death_t=time()
     death_cd=10
@@ -377,7 +377,7 @@ function draw_startup()
     if startup_phase=="menu_select" then
         play_panel:draw() customize_panel:draw()
     elseif startup_phase=="customize" then
-        for p in all(customization_panels) do p:draw() end
+        draw_all(customization_panels)
         draw_minimap(82,32)
     end
 end
@@ -396,7 +396,7 @@ end
 
 function update_customize()
     -- update all panels
-    for p in all(customization_panels) do p:update() end
+    update_all(customization_panels)
 
     -- navigation
     local d=(btnp(⬆️) and -1) or (btnp(⬇️) and 1) or 0
@@ -471,7 +471,7 @@ end
 
 function update_menu_select()
     -- update panels
-    play_panel:update() customize_panel:update()
+    update_all{play_panel, customize_panel}
 
     -- toggle selection with up/down
     if btnp(⬆️) or btnp(⬇️) then
@@ -590,7 +590,7 @@ function draw_world()
 
     -- fx + ship
     particle_sys:draw()
-    for c in all(collectibles) do c:draw() end
+    draw_all(collectibles)
     if not player_ship.dead then player_ship:draw() end
 end
 
@@ -619,7 +619,7 @@ function draw_game()
     end
 
     -- floating texts
-    for f in all(floating_texts) do f:draw() end
+    draw_all(floating_texts)
 
     -- ui (top + bottom)
     draw_ui()
@@ -966,8 +966,7 @@ function gm:update()
         if new_msg != self.tut_msg then
             self.tut_msg = new_msg
             local dur = (new_msg == "good luck!") and 2 or 99
-            local col = (new_msg == "good luck!") and 11 or 7
-            ui_say(new_msg, dur, col)
+            ui_say(new_msg, dur, 11)
         end
         return  -- skip events during tutorial
     end
@@ -1190,11 +1189,7 @@ end
 
 function manage_collectibles()
     -- remove far ones
-    for i = #collectibles, 1, -1 do
-        if not collectibles[i]:update() then
-            deli(collectibles, i)
-        end
-    end
+    prune_update(collectibles)
     
     -- spawn new ones if needed
     while #collectibles < 10 do  -- maintain 6 items
@@ -1321,7 +1316,8 @@ function ship:update_targeting()
         end
     end
     if found then self.target=found return true end
-    self.target = self.is_enemy and nil or {x=self.x+cos(a)*10,y=self.y+sin(a)*10}
+    local world_angle = atan2(self.vx, self.vy)
+    self.target = self.is_enemy and nil or {x=self.x+cos(world_angle)*10,y=self.y+sin(world_angle)*10}
     return false
 end
 
@@ -1562,7 +1558,7 @@ end
 
 
 function combat_event:update()
-    for e in all(enemies) do e:update() end
+    update_all(enemies)
     local remaining=#enemies
 
     if remaining==0 then
@@ -1586,10 +1582,8 @@ end
 
 
 function combat_event:draw()
-    for e in all(enemies) do
-        e:draw()
-        draw_arrow_to(e.x, e.y)
-    end
+    draw_all(enemies)
+    for e in all(enemies) do draw_arrow_to(e.x,e.y) end
 end
 
 
@@ -1933,8 +1927,8 @@ c30b0000110400000011040000001104000000110400000011040000001104000000110400000011
 c70b000020345203451d3451d3451f3451f34520345203451d3451d3451f3451f34520345203451b3451b3451d3451f3001d3051d3301d3051d3001d3251f3001d3051d3201d3051d3001d3151f3001c3051d310
 c70b000020345203451d3451d3451f3451f34520345203451d3451d3451f3451f34520345203451b3451b3451c3451f3001d3051c3301d3051d3001c3251f3001d3051c3201d3051d3001c3151f3001c3051c310
 d70b00000525505255052550525505255052550525505255052550525505255052550525505255052550525505255052550525505255052550525505255052550525505255052550525505255052550525505255
-001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+d70b00000525505255052550525505255052550525505255052550525505255052550525505255052550525504255042550425504255042550425504255042550425504255042550425504255042550425504255
+c70b00001c3441f3041d3041c3441d3041d3041c3441f3041d3041c3341d3041d3041c3341f3041c3041c3341c3041f3041c3241c3041d3041c3241c3041f3041c3241c3041d3041c3141c3041f3041c3141c304
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -1962,9 +1956,9 @@ d70b0000052550525505255052550525505255052550525505255052550525505255052550525505
 000500003b650356502f6502965025650206501c6501765013650116500f6500d6500c6500a650096500965008650076500765006650056600465004650036400264002640016300063000630006200061000600
 150100003f66033660256601d660146600e6600b660086600766006660056600566005660046600466003660036600566008660096603d6000060000600006000060000600006000060000600006000060000600
 __music__
-01 02064344
-00 03060844
-00 04060944
+01 02066363
+00 03060863
+00 04060963
 00 05070a0b
 00 00020c10
 00 01030d11
@@ -1996,4 +1990,5 @@ __music__
 00 41424344
 01 21234344
 02 22234344
+03 24254344
 
